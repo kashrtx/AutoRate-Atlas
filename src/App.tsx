@@ -151,10 +151,12 @@ function App() {
           animate={{ opacity: 1, y: 0 }}
           className="glass rounded-3xl p-6 md:p-8"
         >
-          <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/35 px-3 py-1 text-xs text-primary">
+          <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-xs text-primary">
             <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login insurance estimate tool
           </p>
-          <h1 className="text-3xl font-semibold leading-tight md:text-5xl">AutoRate Atlas</h1>
+          <h1 className="bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent md:text-5xl">
+            AutoRate Atlas
+          </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
             Live estimate updates from public data signals. This is an estimate only, not a guaranteed insurer quote.
           </p>
@@ -455,7 +457,9 @@ function App() {
                     <h4 className="text-lg font-semibold">How this estimate is built</h4>
                     <p className="mt-2 text-sm text-white/75">
                       We combine state-level insurance baselines, Open-Meteo weather severity, and live road-density
-                      signals from OpenStreetMap Overpass, plus NHTSA vehicle taxonomy and your profile modifiers.
+                      signals from OpenStreetMap Overpass, plus Census tract context, BLS insurance trend data, NHTSA
+                      vehicle taxonomy, and your profile modifiers (including optional small gender adjustment if
+                      provided).
                       Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>

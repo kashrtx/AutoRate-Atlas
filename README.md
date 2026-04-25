@@ -35,9 +35,10 @@ The app combines multiple **live public signals** in a weighted pipeline:
 1. Open-Meteo weather severity feed
 2. OpenStreetMap Overpass road/network complexity feed
 3. FCC block lookup + U.S. Census ACS socioeconomic context
-4. NHTSA vPIC vehicle taxonomy + make/model normalization
-5. Driver-profile modifier (age range, driving history)
-6. Confidence scoring based on live feed availability
+4. U.S. BLS motor-vehicle-insurance trend signal
+5. NHTSA vPIC vehicle taxonomy + make/model normalization
+6. Driver-profile modifiers (age range, driving history, optional gender)
+7. Confidence scoring based on live feed availability
 
 Output includes:
 

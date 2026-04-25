@@ -52,6 +52,43 @@ const yearModifier = (year: number) => {
   return 1
 }
 
+const genderModifier = (gender?: string) => {
+  if (!gender) return 1
+  if (gender === 'male') return 1.015
+  if (gender === 'female') return 0.99
+  return 1
+}
+
+const fetchBlsInsuranceTrendFactor = async () => {
+  const currentYear = new Date().getUTCFullYear()
+  const body = {
+    seriesid: ['CUUR0000SETA02'],
+    startyear: String(currentYear - 2),
+    endyear: String(currentYear),
+  }
+
+  const response = await withBackoff(() =>
+    fetch('https://api.bls.gov/publicAPI/v2/timeseries/data/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+
+  if (!response.ok) throw new Error('bls unavailable')
+  const payload = await response.json()
+  const rows = payload?.Results?.series?.[0]?.data as Array<{ period: string; value: string }> | undefined
+  if (!rows?.length) throw new Error('bls empty')
+
+  const monthly = rows.filter((row) => row.period.startsWith('M'))
+  const latest = Number(monthly[0]?.value)
+  const yearAgo = Number(monthly[12]?.value)
+  if (!Number.isFinite(latest) || !Number.isFinite(yearAgo) || yearAgo === 0) throw new Error('bls invalid')
+
+  const yoy = (latest - yearAgo) / yearAgo
+  return clamp(1 + yoy * 0.4, 0.92, 1.18)
+}
+
 const fetchWeatherSeverity = async (lat: number, lng: number) => {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=precipitation_sum,windspeed_10m_max,snowfall_sum,temperature_2m_max&forecast_days=7&timezone=auto`
   const response = await withBackoff(() => fetch(url))
@@ -142,9 +179,11 @@ export const handler: Handler = async (event) => {
     let roadDensityScore = 45
     let medianIncome = 65000
     let tractPopulation = 4200
+    let blsTrendFactor = 1
     let weatherAvailable = true
     let roadsAvailable = true
     let censusAvailable = true
+    let blsAvailable = true
 
     try {
       weatherScore = await fetchWeatherSeverity(lat, lng)
@@ -165,6 +204,11 @@ export const handler: Handler = async (event) => {
     } catch {
       censusAvailable = false
     }
+    try {
+      blsTrendFactor = await fetchBlsInsuranceTrendFactor()
+    } catch {
+      blsAvailable = false
+    }
 
     const incomeRisk = clamp((70000 - medianIncome) / 1800 + 48, 20, 90)
     const densityRisk = clamp(tractPopulation / 95, 18, 88)
@@ -173,7 +217,8 @@ export const handler: Handler = async (event) => {
       ageModifier(request.ageRange) *
       drivingHistoryModifier(request.drivingHistory) *
       makeModifier(request.vehicleMake) *
-      yearModifier(request.vehicleYear)
+      yearModifier(request.vehicleYear) *
+      genderModifier(request.gender)
 
     const regionalRisk =
       weatherScore * 0.3 +
@@ -182,17 +227,21 @@ export const handler: Handler = async (event) => {
       densityRisk * 0.2
 
     const riskScore = Math.round(clamp(regionalRisk * 0.82 + profileModifier * 20, 22, 98))
-    const likelyMonthly = Math.round(NATIONAL_MONTHLY_BASE * profileModifier * (0.74 + riskScore / 108))
+    const likelyMonthly = Math.round(NATIONAL_MONTHLY_BASE * blsTrendFactor * profileModifier * (0.74 + riskScore / 108))
     const lowMonthly = Math.round(likelyMonthly * 0.83)
     const highMonthly = Math.round(likelyMonthly * 1.27)
 
     const confidence = Math.round(
-      clamp(52 + (weatherAvailable ? 14 : 0) + (roadsAvailable ? 14 : 0) + (censusAvailable ? 14 : 0), 45, 94),
+      clamp(
+        48 + (weatherAvailable ? 12 : 0) + (roadsAvailable ? 12 : 0) + (censusAvailable ? 12 : 0) + (blsAvailable ? 10 : 0),
+        45,
+        94,
+      ),
     )
 
     const confidenceReason =
-      weatherAvailable && roadsAvailable && censusAvailable
-        ? 'Estimate uses live weather, road-network, and Census socioeconomic data for this location.'
+      weatherAvailable && roadsAvailable && censusAvailable && blsAvailable
+        ? 'Estimate uses live weather, road-network, Census socioeconomic, and BLS insurance trend data.'
         : 'One or more live feeds were unavailable; confidence is reduced and robust defaults were blended.'
 
     return {
@@ -291,6 +340,12 @@ export const handler: Handler = async (event) => {
             category: 'Vehicle taxonomy',
             url: 'https://vpic.nhtsa.dot.gov/api/',
             note: 'Vehicle make/model normalization and category context.',
+          },
+          {
+            name: 'U.S. Bureau of Labor Statistics API',
+            category: 'Insurance trend baseline',
+            url: 'https://www.bls.gov/developers/',
+            note: blsAvailable ? 'Motor vehicle insurance CPI trend is blended into baseline.' : 'Feed unavailable; national baseline used.',
           },
         ],
         generatedAt: new Date().toISOString(),
