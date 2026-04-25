@@ -30,14 +30,14 @@ AutoRate Atlas is a production-ready, no-login web app that estimates auto insur
 
 ## Data and estimation approach
 
-The app combines multiple public signals in a weighted pipeline:
+The app combines multiple **live public signals** in a weighted pipeline:
 
-1. Location and congestion risk signal
-2. Crash trend context
-3. Weather severity (Open-Meteo) + road density (OpenStreetMap Overpass)
-4. Vehicle profile modifier
+1. Open-Meteo weather severity feed
+2. OpenStreetMap Overpass road/network complexity feed
+3. FCC block lookup + U.S. Census ACS socioeconomic context
+4. NHTSA vPIC vehicle taxonomy + make/model normalization
 5. Driver-profile modifier (age range, driving history)
-6. Confidence scoring based on data availability and specificity
+6. Confidence scoring based on live feed availability
 
 Output includes:
 

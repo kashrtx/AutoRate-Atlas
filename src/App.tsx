@@ -31,6 +31,9 @@ function App() {
   const [locationSuggestions, setLocationSuggestions] = useState<Array<{ displayName: string; lat: number; lng: number }>>([])
   const [makeSuggestions, setMakeSuggestions] = useState<Array<{ id: string; name: string }>>([])
   const [modelSuggestions, setModelSuggestions] = useState<Array<{ id: string; name: string }>>([])
+  const [locationFocused, setLocationFocused] = useState(false)
+  const [makeFocused, setMakeFocused] = useState(false)
+  const [modelFocused, setModelFocused] = useState(false)
 
   const canEstimate = Boolean(request.location && request.vehicleMake && request.vehicleModel && request.vehicleYear)
 
@@ -170,6 +173,8 @@ function App() {
                     aria-label="Location"
                     className="pl-9"
                     value={request.location}
+                    onFocus={() => setLocationFocused(true)}
+                    onBlur={() => setTimeout(() => setLocationFocused(false), 130)}
                     onChange={(e) => setRequest((prev) => ({ ...prev, location: e.target.value, lat: undefined, lng: undefined }))}
                     placeholder="City, ZIP, neighborhood, or address"
                   />
@@ -179,10 +184,11 @@ function App() {
                 </Button>
               </div>
 
-              {locationSuggestions.length > 0 && request.location.length > 2 ? (
-                <div className="absolute z-30 mt-1 max-h-48 w-[calc(100%-3.5rem)] overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+              {locationFocused && locationSuggestions.length > 0 && request.location.length > 2 ? (
+                <div role="listbox" className="absolute z-30 mt-1 max-h-48 w-[calc(100%-3.5rem)] overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
                   {locationSuggestions.map((option) => (
                     <button
+                      role="option"
                       key={`${option.displayName}-${option.lat}`}
                       className="block w-full rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
                       onClick={() => {
@@ -193,6 +199,7 @@ function App() {
                           lng: option.lng,
                         }))
                         setLocationSuggestions([])
+                        setLocationFocused(false)
                       }}
                     >
                       {option.displayName}
@@ -233,16 +240,22 @@ function App() {
                 <label className="mb-1 block text-sm font-medium">Make</label>
                 <Input
                   value={request.vehicleMake}
+                  onFocus={() => setMakeFocused(true)}
+                  onBlur={() => setTimeout(() => setMakeFocused(false), 130)}
                   onChange={(e) => setRequest((prev) => ({ ...prev, vehicleMake: e.target.value, vehicleModel: '' }))}
                   placeholder="Toyota"
                 />
-                {filteredMakes.length > 0 ? (
-                  <div className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+                {makeFocused && filteredMakes.length > 0 ? (
+                  <div role="listbox" className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
                     {filteredMakes.map((make) => (
                       <button
+                        role="option"
                         key={make.id}
                         className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
-                        onClick={() => setRequest((prev) => ({ ...prev, vehicleMake: make.name, vehicleModel: '' }))}
+                        onClick={() => {
+                          setRequest((prev) => ({ ...prev, vehicleMake: make.name, vehicleModel: '' }))
+                          setMakeFocused(false)
+                        }}
                       >
                         {make.name}
                         {request.vehicleMake.toLowerCase() === make.name.toLowerCase() ? <Check className="h-3.5 w-3.5" /> : null}
@@ -256,16 +269,22 @@ function App() {
                 <label className="mb-1 block text-sm font-medium">Model</label>
                 <Input
                   value={request.vehicleModel}
+                  onFocus={() => setModelFocused(true)}
+                  onBlur={() => setTimeout(() => setModelFocused(false), 130)}
                   onChange={(e) => setRequest((prev) => ({ ...prev, vehicleModel: e.target.value }))}
                   placeholder="RAV4"
                 />
-                {filteredModels.length > 0 ? (
-                  <div className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+                {modelFocused && filteredModels.length > 0 ? (
+                  <div role="listbox" className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
                     {filteredModels.map((model) => (
                       <button
+                        role="option"
                         key={model.id}
                         className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
-                        onClick={() => setRequest((prev) => ({ ...prev, vehicleModel: model.name }))}
+                        onClick={() => {
+                          setRequest((prev) => ({ ...prev, vehicleModel: model.name }))
+                          setModelFocused(false)
+                        }}
                       >
                         {model.name}
                         {request.vehicleModel.toLowerCase() === model.name.toLowerCase() ? <Check className="h-3.5 w-3.5" /> : null}
