@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 225 24% 8%;
+  --foreground: 210 40% 98%;
+  --muted: 220 20% 18%;
+  --card: 224 25% 12%;
+  --border: 216 34% 23%;
+  --primary: 196 100% 65%;
+  --accent: 268 90% 72%;
+  --success: 160 84% 44%;
+  --warning: 33 96% 56%;
+}
+
+.light {
+  --background: 0 0% 97%;
+  --foreground: 225 32% 10%;
+  --muted: 210 30% 90%;
+  --card: 0 0% 100%;
+  --border: 214 18% 80%;
+  --primary: 221 83% 55%;
+  --accent: 268 70% 58%;
+  --success: 160 84% 35%;
+  --warning: 32 95% 45%;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply m-0 bg-background text-foreground antialiased;
+  font-family: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+}
+
+.glass {
+  @apply border border-white/15 bg-white/5 backdrop-blur-xl shadow-glass;
+}
+
+.metric-label {
+  @apply text-xs uppercase tracking-wide text-white/70;
+}
