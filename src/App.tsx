@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LoaderCircle, LocateFixed, MapPin, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -8,8 +8,9 @@ import { Select } from './components/ui/select'
 import { EstimateTrendChart } from './components/charts/estimate-trend-chart'
 import { RiskBreakdownChart } from './components/charts/risk-breakdown-chart'
 import { confidenceLabel, formatCurrency } from './lib/format'
-import { geocodeLocation } from './lib/geocode'
+import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
+import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
 import type { AgeRange, DrivingHistory, EstimateRequest, EstimateResponse } from './types/estimate'
 
 const ageRanges: AgeRange[] = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
@@ -27,20 +28,49 @@ function App() {
   const [result, setResult] = useState<EstimateResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [locationSuggestions, setLocationSuggestions] = useState<Array<{ displayName: string; lat: number; lng: number }>>([])
+  const [makeSuggestions, setMakeSuggestions] = useState<Array<{ id: string; name: string }>>([])
+  const [modelSuggestions, setModelSuggestions] = useState<Array<{ id: string; name: string }>>([])
+
+  const canEstimate = Boolean(request.location && request.vehicleMake && request.vehicleModel && request.vehicleYear)
 
   const riskData = useMemo(
     () => result?.riskFactors.map((factor) => ({ label: factor.label, score: factor.score })) ?? [],
     [result],
   )
 
-  const detectLocation = async () => {
+  useEffect(() => {
+    getVehicleMakes().then(setMakeSuggestions).catch(() => setMakeSuggestions([]))
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      suggestLocations(request.location)
+        .then(setLocationSuggestions)
+        .catch(() => setLocationSuggestions([]))
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [request.location])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      getModelsForMakeYear(request.vehicleMake, request.vehicleYear)
+        .then(setModelSuggestions)
+        .catch(() => setModelSuggestions([]))
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [request.vehicleMake, request.vehicleYear])
+
+  const detectLocation = () => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported in your browser.')
       return
     }
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         setError(null)
         const label = `Lat ${position.coords.latitude.toFixed(3)}, Lng ${position.coords.longitude.toFixed(3)}`
         setRequest((prev) => ({
@@ -55,7 +85,9 @@ function App() {
     )
   }
 
-  const runEstimate = async () => {
+  const runEstimate = useCallback(async () => {
+    if (!canEstimate) return
+
     setLoading(true)
     setError(null)
 
@@ -84,7 +116,29 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [canEstimate, request])
+
+  useEffect(() => {
+    if (!canEstimate) return
+
+    const timer = setTimeout(() => {
+      runEstimate()
+    }, 700)
+
+    return () => clearTimeout(timer)
+  }, [canEstimate, runEstimate])
+
+  const filteredMakes = useMemo(() => {
+    const query = request.vehicleMake.trim().toLowerCase()
+    if (!query) return makeSuggestions.slice(0, 8)
+    return makeSuggestions.filter((make) => make.name.toLowerCase().includes(query)).slice(0, 8)
+  }, [makeSuggestions, request.vehicleMake])
+
+  const filteredModels = useMemo(() => {
+    const query = request.vehicleModel.trim().toLowerCase()
+    if (!query) return modelSuggestions.slice(0, 8)
+    return modelSuggestions.filter((model) => model.name.toLowerCase().includes(query)).slice(0, 8)
+  }, [modelSuggestions, request.vehicleModel])
 
   return (
     <div className="min-h-screen bg-background bg-mesh px-4 pb-12 pt-6 text-foreground md:px-8">
@@ -99,27 +153,53 @@ function App() {
           </p>
           <h1 className="text-3xl font-semibold leading-tight md:text-5xl">AutoRate Atlas</h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Estimate monthly and yearly auto insurance cost ranges using public risk signals, location context,
-            and your profile. This is an estimate, not a guaranteed insurer quote.
+            Live estimate updates from public data signals. This is an estimate only, not a guaranteed insurer quote.
           </p>
         </motion.header>
 
         <div className="grid gap-6 lg:grid-cols-[1.05fr_1.35fr]">
           <Card className="space-y-4">
             <h2 className="text-xl font-semibold">Estimate inputs</h2>
-            <div>
+
+            <div className="relative">
               <label className="mb-1 block text-sm font-medium">Location</label>
               <div className="flex gap-2">
-                <Input
-                  aria-label="Location"
-                  value={request.location}
-                  onChange={(e) => setRequest((prev) => ({ ...prev, location: e.target.value }))}
-                  placeholder="City, ZIP, neighborhood, or address"
-                />
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-white/45" />
+                  <Input
+                    aria-label="Location"
+                    className="pl-9"
+                    value={request.location}
+                    onChange={(e) => setRequest((prev) => ({ ...prev, location: e.target.value, lat: undefined, lng: undefined }))}
+                    placeholder="City, ZIP, neighborhood, or address"
+                  />
+                </div>
                 <Button onClick={detectLocation} className="px-3" aria-label="Detect location">
                   <LocateFixed className="h-4 w-4" />
                 </Button>
               </div>
+
+              {locationSuggestions.length > 0 && request.location.length > 2 ? (
+                <div className="absolute z-30 mt-1 max-h-48 w-[calc(100%-3.5rem)] overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+                  {locationSuggestions.map((option) => (
+                    <button
+                      key={`${option.displayName}-${option.lat}`}
+                      className="block w-full rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                      onClick={() => {
+                        setRequest((prev) => ({
+                          ...prev,
+                          location: option.displayName,
+                          lat: option.lat,
+                          lng: option.lng,
+                        }))
+                        setLocationSuggestions([])
+                      }}
+                    >
+                      {option.displayName}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -140,28 +220,59 @@ function App() {
                   onChange={(e) => setRequest((prev) => ({ ...prev, ageRange: e.target.value as AgeRange }))}
                 >
                   {ageRanges.map((age) => (
-                    <option key={age}>{age}</option>
+                    <option className="bg-white text-slate-900" key={age}>
+                      {age}
+                    </option>
                   ))}
                 </Select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="relative">
                 <label className="mb-1 block text-sm font-medium">Make</label>
                 <Input
                   value={request.vehicleMake}
-                  onChange={(e) => setRequest((prev) => ({ ...prev, vehicleMake: e.target.value }))}
+                  onChange={(e) => setRequest((prev) => ({ ...prev, vehicleMake: e.target.value, vehicleModel: '' }))}
                   placeholder="Toyota"
                 />
+                {filteredMakes.length > 0 ? (
+                  <div className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+                    {filteredMakes.map((make) => (
+                      <button
+                        key={make.id}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                        onClick={() => setRequest((prev) => ({ ...prev, vehicleMake: make.name, vehicleModel: '' }))}
+                      >
+                        {make.name}
+                        {request.vehicleMake.toLowerCase() === make.name.toLowerCase() ? <Check className="h-3.5 w-3.5" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              <div>
+
+              <div className="relative">
                 <label className="mb-1 block text-sm font-medium">Model</label>
                 <Input
                   value={request.vehicleModel}
                   onChange={(e) => setRequest((prev) => ({ ...prev, vehicleModel: e.target.value }))}
                   placeholder="RAV4"
                 />
+                {filteredModels.length > 0 ? (
+                  <div className="absolute z-20 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-white/15 bg-slate-950/90 p-1 backdrop-blur">
+                    {filteredModels.map((model) => (
+                      <button
+                        key={model.id}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                        onClick={() => setRequest((prev) => ({ ...prev, vehicleModel: model.name }))}
+                      >
+                        {model.name}
+                        {request.vehicleModel.toLowerCase() === model.name.toLowerCase() ? <Check className="h-3.5 w-3.5" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -184,7 +295,9 @@ function App() {
                   }
                 >
                   {historyOptions.map((opt) => (
-                    <option key={opt}>{opt}</option>
+                    <option className="bg-white text-slate-900" key={opt}>
+                      {opt}
+                    </option>
                   ))}
                 </Select>
               </div>
@@ -194,21 +307,21 @@ function App() {
                   value={request.gender ?? ''}
                   onChange={(e) => setRequest((prev) => ({ ...prev, gender: e.target.value || undefined }))}
                 >
-                  <option value="">Prefer not to say</option>
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                  <option value="nonbinary">Non-binary</option>
+                  <option className="bg-white text-slate-900" value="">Prefer not to say</option>
+                  <option className="bg-white text-slate-900" value="female">Female</option>
+                  <option className="bg-white text-slate-900" value="male">Male</option>
+                  <option className="bg-white text-slate-900" value="nonbinary">Non-binary</option>
                 </Select>
               </div>
             </div>
 
-            <Button onClick={runEstimate} disabled={loading || !request.location || !request.vehicleMake || !request.vehicleModel}>
+            <Button onClick={runEstimate} disabled={loading || !canEstimate}>
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Generate estimate
+              Refresh estimate now
             </Button>
 
             <p className="text-xs text-white/70">
-              Privacy-safe: no account required. Inputs are used only for this estimate request.
+              Live updates run automatically after input changes. Privacy-safe: no account required.
             </p>
 
             {error ? (
@@ -229,10 +342,9 @@ function App() {
               >
                 <Card className="flex min-h-[530px] flex-col items-center justify-center text-center">
                   <MapPin className="mb-3 h-10 w-10 text-primary" />
-                  <h3 className="text-2xl font-semibold">Your estimate dashboard will appear here</h3>
+                  <h3 className="text-2xl font-semibold">Your live estimate dashboard will appear here</h3>
                   <p className="mt-2 max-w-md text-sm text-white/70">
-                    Add your location and vehicle profile to generate a transparent premium range with confidence,
-                    risk drivers, methodology, and data sources.
+                    Choose a real location suggestion and a real vehicle make/model from NHTSA to generate a dynamic estimate.
                   </p>
                 </Card>
               </motion.div>
@@ -259,6 +371,7 @@ function App() {
                       {' - '}
                       {formatCurrency(result.yearlyRange[1])}
                     </p>
+                    <p className="mt-1 text-xs text-white/60">Generated {new Date(result.generatedAt).toLocaleString()}</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <div className="rounded-xl border border-white/15 bg-black/20 p-3">
                         <p className="metric-label">Confidence</p>
@@ -322,9 +435,9 @@ function App() {
                   <Card>
                     <h4 className="text-lg font-semibold">How this estimate is built</h4>
                     <p className="mt-2 text-sm text-white/75">
-                      We blend public crash statistics, weather severity, traffic density, theft indicators, and
-                      profile-level modifiers. We then combine these signals in a weighted scoring pipeline to produce
-                      low/likely/high ranges. This tool does not provide carrier quotes and should be used for planning.
+                      We combine state-level insurance baselines, Open-Meteo weather severity, and live road-density
+                      signals from OpenStreetMap Overpass, plus NHTSA vehicle taxonomy and your profile modifiers.
+                      Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>
                 </div>

@@ -5,6 +5,7 @@ interface GeocodeResult {
 }
 
 const CACHE_PREFIX = 'atlas_geocode_'
+const SUGGEST_PREFIX = 'atlas_geocode_suggest_'
 
 export const geocodeLocation = async (query: string): Promise<GeocodeResult | null> => {
   if (!query.trim()) return null
@@ -12,7 +13,7 @@ export const geocodeLocation = async (query: string): Promise<GeocodeResult | nu
   const cached = localStorage.getItem(key)
   if (cached) return JSON.parse(cached) as GeocodeResult
 
-  const endpoint = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+  const endpoint = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`
   const response = await fetch(endpoint, {
     headers: {
       'Accept-Language': 'en-US',
@@ -30,4 +31,29 @@ export const geocodeLocation = async (query: string): Promise<GeocodeResult | nu
   }
   localStorage.setItem(key, JSON.stringify(result))
   return result
+}
+
+export const suggestLocations = async (query: string) => {
+  if (query.trim().length < 3) return []
+  const key = `${SUGGEST_PREFIX}${query.toLowerCase().trim()}`
+  const cached = localStorage.getItem(key)
+  if (cached) return JSON.parse(cached) as GeocodeResult[]
+
+  const endpoint = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&q=${encodeURIComponent(query)}`
+  const response = await fetch(endpoint, {
+    headers: {
+      'Accept-Language': 'en-US',
+    },
+  })
+
+  if (!response.ok) return []
+  const data = (await response.json()) as Array<{ display_name: string; lat: string; lon: string }>
+  const options = data.map((item) => ({
+    displayName: item.display_name,
+    lat: Number(item.lat),
+    lng: Number(item.lon),
+  }))
+
+  localStorage.setItem(key, JSON.stringify(options))
+  return options
 }

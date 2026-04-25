@@ -15,8 +15,8 @@ AutoRate Atlas is a production-ready, no-login web app that estimates auto insur
 ## Features
 
 - Premium dark-first glass UI with responsive layout
-- Manual location lookup + browser geolocation
-- Estimate form (vehicle + profile + driving history)
+- Autocomplete location search (Nominatim) + browser geolocation
+- Vehicle make/model live suggestions from NHTSA vPIC + profile inputs
 - Results dashboard with:
   - Monthly and yearly estimate bands
   - Confidence and risk score
@@ -26,7 +26,7 @@ AutoRate Atlas is a production-ready, no-login web app that estimates auto insur
   - Methodology panel
 - Loading, empty, error, and fallback states
 - Fallback estimator if live source is unavailable
-- Cached client geocoding to reduce repeated API calls
+- Cached client geocoding/model lookups to reduce repeated API calls
 
 ## Data and estimation approach
 
@@ -34,7 +34,7 @@ The app combines multiple public signals in a weighted pipeline:
 
 1. Location and congestion risk signal
 2. Crash trend context
-3. Weather/road-condition severity (Open-Meteo)
+3. Weather severity (Open-Meteo) + road density (OpenStreetMap Overpass)
 4. Vehicle profile modifier
 5. Driver-profile modifier (age range, driving history)
 6. Confidence scoring based on data availability and specificity
