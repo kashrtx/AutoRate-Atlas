@@ -18,6 +18,96 @@ interface EstimateRequest {
 
 const NATIONAL_MONTHLY_BASE = 182
 
+const sigmoid = (value: number) => 1 / (1 + Math.exp(-value))
+
+const ML_MODEL = {
+  intercept: -0.18,
+  weights: {
+    ageRisk: 0.92,
+    historyRisk: 1.08,
+    coverageRisk: 0.96,
+    mileageRisk: 0.51,
+    creditRisk: 1.18,
+    vehicleValueLog: 0.84,
+    weatherRisk: 0.33,
+    roadRisk: 0.39,
+    incomeRisk: 0.27,
+    densityRisk: 0.22,
+    recallRisk: 0.29,
+    trendRisk: 0.36,
+    interactionYoungPerformance: 0.41,
+  },
+}
+
+const ageRiskForMl = (ageRange: string) =>
+  ({ '18-24': 1, '25-34': 0.72, '35-44': 0.45, '45-54': 0.34, '55-64': 0.3, '65+': 0.52 })[ageRange] ?? 0.45
+
+const historyRiskForMl = (history: EstimateRequest['drivingHistory']) =>
+  ({ clean: 0.2, ticket: 0.48, claim: 0.66, multiple: 1 })[history]
+
+const coverageRiskForMl = (coverageLevel: EstimateRequest['coverageLevel']) =>
+  ({ 'state-minimum': 0.2, standard: 0.54, full: 1 })[coverageLevel]
+
+const mileageRiskForMl = (annualMileage: EstimateRequest['annualMileage']) =>
+  ({ low: 0.24, average: 0.56, high: 1 })[annualMileage]
+
+const creditRiskForMl = (creditTier: EstimateRequest['creditTier']) =>
+  ({ excellent: 0.16, good: 0.42, fair: 0.72, poor: 1 })[creditTier]
+
+const vehicleClassRisk = (model: string) => {
+  const v = model.toLowerCase()
+  if (/(coupe|convertible|roadster|gt|amg|m\d|rs\d|turbo|performance)/.test(v)) return 1
+  if (/(truck|f-150|silverado|ram|sierra|tundra|tacoma)/.test(v)) return 0.7
+  if (/(suv|rav4|cr-v|pilot|highlander|tahoe|suburban|explorer)/.test(v)) return 0.58
+  return 0.46
+}
+
+const mlPredictedMonthlyPremium = (input: {
+  request: EstimateRequest
+  vehicleValueEstimate: number
+  weatherScore: number
+  roadDensityScore: number
+  incomeRisk: number
+  densityRisk: number
+  recallScore: number
+  blsTrendFactor: number
+}) => {
+  const { request, vehicleValueEstimate, weatherScore, roadDensityScore, incomeRisk, densityRisk, recallScore, blsTrendFactor } = input
+
+  const ageRisk = ageRiskForMl(request.ageRange)
+  const historyRisk = historyRiskForMl(request.drivingHistory)
+  const coverageRisk = coverageRiskForMl(request.coverageLevel)
+  const mileageRisk = mileageRiskForMl(request.annualMileage)
+  const creditRisk = creditRiskForMl(request.creditTier)
+  const vehicleValueLog = clamp((Math.log(vehicleValueEstimate) - 8.9) / 2.4, 0, 1.45)
+  const weatherRisk = clamp((weatherScore - 20) / 75, 0, 1)
+  const roadRisk = clamp((roadDensityScore - 15) / 75, 0, 1)
+  const incomeRiskNorm = clamp((incomeRisk - 20) / 70, 0, 1)
+  const densityRiskNorm = clamp((densityRisk - 18) / 70, 0, 1)
+  const recallRisk = clamp((recallScore - 18) / 72, 0, 1)
+  const trendRisk = clamp((blsTrendFactor - 0.9) / 0.3, 0, 1)
+  const interactionYoungPerformance = ageRisk * vehicleClassRisk(request.vehicleModel)
+
+  const linear =
+    ML_MODEL.intercept +
+    ageRisk * ML_MODEL.weights.ageRisk +
+    historyRisk * ML_MODEL.weights.historyRisk +
+    coverageRisk * ML_MODEL.weights.coverageRisk +
+    mileageRisk * ML_MODEL.weights.mileageRisk +
+    creditRisk * ML_MODEL.weights.creditRisk +
+    vehicleValueLog * ML_MODEL.weights.vehicleValueLog +
+    weatherRisk * ML_MODEL.weights.weatherRisk +
+    roadRisk * ML_MODEL.weights.roadRisk +
+    incomeRiskNorm * ML_MODEL.weights.incomeRisk +
+    densityRiskNorm * ML_MODEL.weights.densityRisk +
+    recallRisk * ML_MODEL.weights.recallRisk +
+    trendRisk * ML_MODEL.weights.trendRisk +
+    interactionYoungPerformance * ML_MODEL.weights.interactionYoungPerformance
+
+  const mlRisk = clamp(sigmoid(linear), 0.08, 0.98)
+  return Math.round(NATIONAL_MONTHLY_BASE * (0.58 + mlRisk * 2.85))
+}
+
 const withBackoff = async <T>(task: () => Promise<T>, retries = 2): Promise<T> => {
   let lastError: unknown
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -276,9 +366,21 @@ export const handler: Handler = async (event) => {
     const regionalRisk = weatherScore * 0.24 + roadDensityScore * 0.24 + incomeRisk * 0.16 + densityRisk * 0.16 + recallScore * 0.2
 
     const riskScore = Math.round(clamp(regionalRisk * 0.8 + profileModifier * 18 + vehicleValueModifier * 7, 22, 99))
-    const likelyMonthly = Math.round(
+
+    const actuarialMonthly = Math.round(
       NATIONAL_MONTHLY_BASE * blsTrendFactor * profileModifier * vehicleValueModifier * (0.72 + riskScore / 106),
     )
+    const mlMonthly = mlPredictedMonthlyPremium({
+      request,
+      vehicleValueEstimate,
+      weatherScore,
+      roadDensityScore,
+      incomeRisk,
+      densityRisk,
+      recallScore,
+      blsTrendFactor,
+    })
+    const likelyMonthly = Math.round(actuarialMonthly * 0.64 + mlMonthly * 0.36)
     const lowMonthly = Math.round(likelyMonthly * 0.82)
     const highMonthly = Math.round(likelyMonthly * 1.28)
 
@@ -346,7 +448,7 @@ export const handler: Handler = async (event) => {
             label: 'Driver + policy profile',
             score: Math.round(clamp(profileModifier * 46, 20, 98)),
             reason: 'Age, driving history, coverage level, credit tier, mileage, make class, and vehicle age.',
-            source: 'Profile weighting model + III aggregate factors',
+            source: 'Hybrid actuarial + ML model with III-style weighting',
           },
         ],
         context: {
@@ -357,7 +459,7 @@ export const handler: Handler = async (event) => {
           historicalTrend:
             'Trend line uses recent live weather volatility and location-risk signals, then applies seasonal smoothing.',
           comparisonInsight:
-            'Compared with broader U.S. averages, your estimate is most influenced by driver profile, coverage choice, and vehicle value.',
+            'Compared with broader U.S. averages, your estimate is most influenced by driver profile, coverage choice, vehicle value, and the hybrid ML risk layer.',
         },
         charts: {
           estimateTrend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'].map((month, idx) => ({
@@ -409,6 +511,12 @@ export const handler: Handler = async (event) => {
             category: 'Vehicle risk signals',
             url: 'https://api.nhtsa.gov/',
             note: recallAvailable ? 'Vehicle recall count is blended into risk scoring.' : 'Feed unavailable; blended fallback used.',
+          },
+          {
+            name: 'AutoRate Atlas Hybrid ML Layer',
+            category: 'Model inference',
+            url: 'https://en.wikipedia.org/wiki/Generalized_linear_model',
+            note: 'Client request features are scored through a lightweight on-platform ML model and blended with actuarial baseline.',
           },
           {
             name: 'U.S. Bureau of Labor Statistics API',

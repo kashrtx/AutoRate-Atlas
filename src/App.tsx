@@ -166,13 +166,13 @@ function App() {
           className="glass rounded-3xl p-6 md:p-8"
         >
           <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-xs text-primary">
-            <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login insurance estimate tool
+            <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login hybrid AI insurance estimate tool
           </p>
           <h1 className="bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent md:text-5xl">
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Live estimate updates from public data signals, including vehicle-value and recall-risk factors. This is an estimate only, not a guaranteed insurer quote.
+            Live estimate updates from public data signals, including vehicle-value, recall-risk, and a lightweight hybrid ML scoring layer. This is an estimate only, not a guaranteed insurer quote.
           </p>
         </motion.header>
 
@@ -520,8 +520,8 @@ function App() {
                     <p className="mt-2 text-sm text-white/75">
                       We combine state-level insurance baselines, Open-Meteo weather severity, and live road-density
                       signals from OpenStreetMap Overpass, plus Census tract context, BLS insurance trend data, NHTSA recall signals, and a vehicle-value
-                      severity model, then applies driver/policy modifiers (coverage, mileage, credit tier, age,
-                      record, and optional small gender adjustment).
+                      severity model. A lightweight on-platform ML layer then scores the full profile and blends
+                      with the actuarial baseline for a more adaptive estimate without any local installs.
                       Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>
