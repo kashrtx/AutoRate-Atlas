@@ -13,14 +13,14 @@ AutoRate Atlas is a production-ready, no-login web app that estimates auto insur
 - Framer Motion
 - Recharts
 - Netlify Functions
-- WebLLM (Microsoft Phi-4 Mini — runs locally in-browser via WebGPU)
+- WebLLM (Microsoft Phi-3.5 Mini — runs locally in-browser via WebGPU)
 
 ## Features
 
 - Premium dark-first glass UI with responsive layout
 - Autocomplete location search (Nominatim) + browser geolocation
 - Vehicle make/model live suggestions from NHTSA vPIC + profile inputs
-- **In-browser AI** (Microsoft Phi-4 Mini via WebLLM/WebGPU) for vehicle valuation, insurance group classification, and personalized insights
+- **In-browser AI** (Microsoft Phi-3.5 Mini via WebLLM/WebGPU) for vehicle valuation, insurance group classification, and personalized insights
 - Ability to clear cached AI model from browser storage
 - Results dashboard with:
   - Monthly and yearly estimate bands
@@ -49,7 +49,7 @@ The app uses a three-layer architecture:
 6. Driver-profile modifiers (age range, driving history, optional gender)
 7. Confidence scoring based on live feed availability
 
-**Layer 3 — AI enhancement:** Microsoft Phi-4 Mini (3.8B parameters) running locally in the browser via WebLLM/WebGPU. Provides vehicle valuation, insurance group classification, and personalized analysis. AI estimate is blended 30/70 with the actuarial model.
+**Layer 3 — AI enhancement:** Microsoft Phi-3.5 Mini (3.8B parameters) running locally in the browser via WebLLM/WebGPU. Provides vehicle valuation, insurance group classification, and personalized analysis. AI estimate is blended 30/70 with the actuarial model.
 
 Output includes:
 

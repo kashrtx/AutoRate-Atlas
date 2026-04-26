@@ -281,7 +281,7 @@ function App() {
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Insurance estimates powered by an in-browser AI (Microsoft Phi-4), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
+            Insurance estimates powered by an in-browser AI (Microsoft Phi-3.5), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
           </p>
         </motion.header>
 
@@ -508,7 +508,7 @@ function App() {
             </Button>
 
             <p className="text-xs text-white/70">
-              Press the button when you're ready. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local Phi-4.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
+              Press the button when you're ready. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local Phi-3.5.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
             </p>
 
             {llmSupported && (
@@ -626,7 +626,7 @@ function App() {
                         </div>
                         <div>
                           <h4 className="text-lg font-semibold">AI Insights</h4>
-                          <p className="text-xs text-violet-300/70">Powered by Microsoft Phi-4 · Running locally in your browser</p>
+                          <p className="text-xs text-violet-300/70">Powered by Microsoft Phi-3.5 · Running locally in your browser</p>
                         </div>
                       </div>
                       {aiLoading && !aiInsights ? (
@@ -691,7 +691,7 @@ function App() {
                       Generalized Linear Model (GLM) with multiplicative rating factors for age, credit, coverage, mileage, history,
                       vehicle age, and environmental signals (weather, road density, Census income/density). <strong>Layer 3</strong>{' — '}
                       {llmReady
-                        ? 'Microsoft Phi-4 Mini AI model running locally in your browser (via WebLLM/WebGPU) that provides vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
+                        ? 'Microsoft Phi-3.5 Mini AI model running locally in your browser (via WebLLM/WebGPU) that provides vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
                         : 'A fallback heuristic vehicle valuation model (AI engine requires WebGPU browser).'}
                       {' '}Results are statistical estimates only, not carrier-issued quotes.
                     </p>

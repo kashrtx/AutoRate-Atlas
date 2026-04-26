@@ -1,6 +1,6 @@
 import { CreateMLCEngine, type MLCEngine } from '@mlc-ai/web-llm'
 
-const MODEL_ID = 'Phi-4-mini-instruct-q4f16_1-MLC'
+const MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC'
 
 let engineInstance: MLCEngine | null = null
 let engineReady = false
