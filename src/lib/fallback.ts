@@ -41,6 +41,7 @@ export const getFallbackEstimate = (request: EstimateRequest): EstimateResponse 
     confidenceReason: 'Using fallback regional baseline due to temporary data limitations.',
     riskScore: 59,
     vehicleValueEstimate: 28500,
+    vehicleValueSource: 'Fallback make/model depreciation model',
     riskFactors: [
       {
         label: 'Regional baseline risk',

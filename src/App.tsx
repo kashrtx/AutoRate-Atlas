@@ -464,7 +464,7 @@ function App() {
                       <div className="rounded-xl border border-white/15 bg-black/20 p-3 sm:col-span-2">
                         <p className="metric-label">Estimated vehicle value</p>
                         <p className="text-lg font-semibold">{formatCurrency(result.vehicleValueEstimate)}</p>
-                        <p className="text-xs text-white/70">Used to correct underpricing for high-value vehicles.</p>
+                        <p className="text-xs text-white/70">Source: {result.vehicleValueSource ?? 'Fallback model'}.</p>
                       </div>
                     </div>
                   </Card>

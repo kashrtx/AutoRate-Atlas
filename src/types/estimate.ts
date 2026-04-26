@@ -43,6 +43,7 @@ export interface EstimateResponse {
   confidenceReason: string
   riskScore: number
   vehicleValueEstimate: number
+  vehicleValueSource?: string
   riskFactors: RiskFactor[]
   context: {
     areaSummary: string

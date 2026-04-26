@@ -274,42 +274,96 @@ const fetchVehicleRecallRate = async (year: number, make: string, model: string)
   return clamp(count * 8 + 20, 18, 90)
 }
 
-const estimateVehicleValue = (request: EstimateRequest) => {
+const extractUsdValuesFromWikiText = (wikitext: string) => {
+  const pattern = /\$\s?([0-9]+(?:\.[0-9]+)?)\s?(million|billion|k)?/gi
+  const values: number[] = []
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(wikitext)) !== null) {
+    const amount = Number(match[1])
+    if (!Number.isFinite(amount)) continue
+    const suffix = (match[2] ?? '').toLowerCase()
+    const multiplier = suffix === 'billion' ? 1_000_000_000 : suffix === 'million' ? 1_000_000 : suffix === 'k' ? 1000 : 1
+    const usd = amount * multiplier
+    if (usd >= 5000 && usd <= 8_000_000) values.push(usd)
+  }
+  return values
+}
+
+const median = (values: number[]) => {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+const fetchCarApiMsrp = async (year: number, make: string, model: string) => {
+  const params = new URLSearchParams({ year: String(year), make, model })
+  const response = await withBackoff(() => fetch(`https://carapi.app/api/trims/v2?${params.toString()}`))
+  if (!response.ok) throw new Error('carapi unavailable')
+
+  const payload = (await response.json()) as { data?: Array<{ msrp?: number; invoice?: number }> }
+  const msrps = (payload.data ?? []).map((row) => Number(row.msrp ?? 0)).filter((value) => Number.isFinite(value) && value >= 5000)
+  const invoices = (payload.data ?? []).map((row) => Number(row.invoice ?? 0)).filter((value) => Number.isFinite(value) && value >= 5000)
+  const allValues = [...msrps, ...invoices]
+  return median(allValues)
+}
+
+const fetchWikipediaModelPrice = async (make: string, model: string) => {
+  const title = `${make.trim()}_${model.trim()}`.replace(/\s+/g, '_')
+  const url = `https://en.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=content&titles=${encodeURIComponent(title)}&formatversion=2&format=json`
+  const response = await withBackoff(() => fetch(url))
+  if (!response.ok) throw new Error('wikipedia unavailable')
+
+  const payload = (await response.json()) as {
+    query?: { pages?: Array<{ revisions?: Array<{ content?: string }> }> }
+  }
+  const wikitext = payload.query?.pages?.[0]?.revisions?.[0]?.content ?? ''
+  if (!wikitext) throw new Error('wikipedia empty')
+
+  const values = extractUsdValuesFromWikiText(wikitext)
+  const value = median(values)
+  if (!value) throw new Error('wikipedia no price')
+  return value
+}
+
+const fetchVehicleMarketValue = async (request: EstimateRequest) => {
   const currentYear = new Date().getUTCFullYear()
   const age = clamp(currentYear - request.vehicleYear, 0, 25)
+  const exoticMake = /(bugatti|koenigsegg|pagani|ferrari|lamborghini|rimac|mclaren|rolls|bentley)/i.test(request.vehicleMake)
 
-  const baseByBrand: Record<string, number> = {
-    toyota: 32000,
-    honda: 31000,
-    ford: 36000,
-    chevrolet: 35000,
-    nissan: 30000,
-    hyundai: 29000,
-    kia: 29000,
-    bmw: 61000,
-    audi: 58000,
-    mercedes: 64000,
-    'mercedes-benz': 64000,
-    tesla: 56000,
-    porsche: 98000,
-    maserati: 105000,
-    lamborghini: 260000,
-    ferrari: 310000,
-    bentley: 240000,
-    rolls: 345000,
+  let source = 'CarAPI MSRP/invoice dataset'
+  let baseNewValue: number | null = null
+
+  try {
+    baseNewValue = await fetchCarApiMsrp(request.vehicleYear, request.vehicleMake, request.vehicleModel)
+  } catch {
+    // continue to secondary source
   }
 
-  const makeKey = request.vehicleMake.trim().toLowerCase()
-  const makeBase = baseByBrand[makeKey] ?? 35500
+  if (!baseNewValue) {
+    try {
+      baseNewValue = await fetchWikipediaModelPrice(request.vehicleMake, request.vehicleModel)
+      source = 'Wikipedia model pricing references'
+    } catch {
+      // continue to final fallback
+    }
+  }
 
-  const modelLower = request.vehicleModel.toLowerCase()
-  let bodyClassMultiplier = 1
-  if (/(truck|f-150|silverado|ram|sierra|tundra|tacoma)/.test(modelLower)) bodyClassMultiplier = 1.16
-  if (/(suv|rav4|cr-v|pilot|highlander|tahoe|suburban|explorer)/.test(modelLower)) bodyClassMultiplier = 1.1
-  if (/(coupe|convertible|roadster|gt|amg|m\d|rs\d|turbo|performance)/.test(modelLower)) bodyClassMultiplier = 1.2
+  if (!baseNewValue) {
+    source = 'Fallback make/model depreciation model'
+    const fallbackBase = exoticMake ? 450000 : 35500
+    baseNewValue = fallbackBase
+  }
 
-  const depreciation = Math.pow(0.88, age)
-  return Math.round(clamp(makeBase * bodyClassMultiplier * depreciation, 6500, 420000))
+  const depreciationRate = exoticMake ? 0.95 : 0.87
+  const floor = exoticMake ? baseNewValue * 0.65 : baseNewValue * 0.2
+  const marketValue = Math.round(clamp(baseNewValue * Math.pow(depreciationRate, age), floor, 4_500_000))
+
+  return {
+    marketValue,
+    source,
+    baseNewValue,
+  }
 }
 
 export const handler: Handler = async (event) => {
@@ -332,6 +386,7 @@ export const handler: Handler = async (event) => {
       fetchCensusSocioSignals(lat, lng),
       fetchBlsInsuranceTrendFactor(),
       fetchVehicleRecallRate(request.vehicleYear, request.vehicleMake, request.vehicleModel),
+      fetchVehicleMarketValue(request),
     ])
 
     const weatherAvailable = feeds[0].status === 'fulfilled'
@@ -339,6 +394,7 @@ export const handler: Handler = async (event) => {
     const censusAvailable = feeds[2].status === 'fulfilled'
     const blsAvailable = feeds[3].status === 'fulfilled'
     const recallAvailable = feeds[4].status === 'fulfilled'
+    const valueAvailable = feeds[5].status === 'fulfilled'
 
     const weatherScore = weatherAvailable ? feeds[0].value : 45
     const roadDensityScore = roadsAvailable ? feeds[1].value : 45
@@ -346,6 +402,8 @@ export const handler: Handler = async (event) => {
     const tractPopulation = censusAvailable ? feeds[2].value.tractPopulation : 4200
     const blsTrendFactor = blsAvailable ? feeds[3].value : 1
     const recallScore = recallAvailable ? feeds[4].value : 42
+    const vehicleValueEstimate = valueAvailable ? feeds[5].value.marketValue : 28500
+    const vehicleValueSource = valueAvailable ? feeds[5].value.source : 'Fallback make/model depreciation model'
 
     const incomeRisk = clamp((70000 - medianIncome) / 1800 + 48, 20, 90)
     const densityRisk = clamp(tractPopulation / 95, 18, 88)
@@ -360,7 +418,6 @@ export const handler: Handler = async (event) => {
       mileageModifier(request.annualMileage ?? 'average') *
       creditModifier(request.creditTier ?? 'good')
 
-    const vehicleValueEstimate = estimateVehicleValue(request)
     const vehicleValueModifier = clamp(0.78 + vehicleValueEstimate / 95000, 0.84, 3.4)
 
     const regionalRisk = weatherScore * 0.24 + roadDensityScore * 0.24 + incomeRisk * 0.16 + densityRisk * 0.16 + recallScore * 0.2
@@ -391,7 +448,8 @@ export const handler: Handler = async (event) => {
           (roadsAvailable ? 10 : 0) +
           (censusAvailable ? 10 : 0) +
           (blsAvailable ? 10 : 0) +
-          (recallAvailable ? 8 : 0),
+          (recallAvailable ? 8 : 0) +
+          (valueAvailable ? 8 : 0),
         45,
         96,
       ),
@@ -399,7 +457,7 @@ export const handler: Handler = async (event) => {
 
     const confidenceReason =
       weatherAvailable && roadsAvailable && censusAvailable && blsAvailable && recallAvailable
-        ? 'Estimate uses live weather, road-network, Census socioeconomic, BLS CPI trend, and NHTSA recall data.'
+        ? 'Estimate uses live weather, road-network, Census socioeconomic, BLS CPI trend, NHTSA recall data, and live vehicle-value lookup.'
         : 'One or more live feeds were unavailable; confidence is reduced and robust defaults were blended.'
 
     return {
@@ -413,11 +471,12 @@ export const handler: Handler = async (event) => {
         confidenceReason,
         riskScore,
         vehicleValueEstimate,
+        vehicleValueSource,
         riskFactors: [
           {
             label: 'Vehicle value + repair exposure',
             score: Math.round(clamp(vehicleValueModifier * 30, 25, 98)),
-            reason: 'Estimated market value and likely repair severity raise physical damage exposure.',
+            reason: `Estimated market value from ${vehicleValueSource} is blended with depreciation and repair severity exposure.`,
             source: 'Brand/model/year valuation model (vPIC-informed)',
           },
           {
@@ -511,6 +570,18 @@ export const handler: Handler = async (event) => {
             category: 'Vehicle risk signals',
             url: 'https://api.nhtsa.gov/',
             note: recallAvailable ? 'Vehicle recall count is blended into risk scoring.' : 'Feed unavailable; blended fallback used.',
+          },
+          {
+            name: 'CarAPI Trims v2',
+            category: 'Vehicle MSRP/invoice',
+            url: 'https://carapi.app/',
+            note: `Primary vehicle-value source (${vehicleValueSource === 'CarAPI MSRP/invoice dataset' ? 'live dataset used' : 'fallback path used'}).`,
+          },
+          {
+            name: 'Wikipedia API',
+            category: 'Vehicle pricing fallback',
+            url: 'https://www.mediawiki.org/wiki/API:Main_page',
+            note: vehicleValueSource === 'Wikipedia model pricing references' ? 'Used as backup pricing reference when trim MSRP is unavailable.' : 'Backup source available for rare/exotic models.',
           },
           {
             name: 'AutoRate Atlas Hybrid ML Layer',
