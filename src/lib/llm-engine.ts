@@ -26,7 +26,7 @@ export const getEngine = async (
   loadingPromise = (async () => {
     try {
       engineInstance = await CreateMLCEngine(MODEL_ID, {
-        initProgressCallback: (report) => {
+        initProgressCallback: (report: { progress: number; text: string }) => {
           onProgress?.({
             progress: report.progress,
             text: report.text,
@@ -106,13 +106,11 @@ Fields:
       ],
       temperature: 0.1,
       max_tokens: 300,
-      response_format: { type: 'json_object' },
     })
 
     const content = response.choices[0]?.message?.content
-    if (!content) return null
-
-    const parsed = JSON.parse(content) as VehicleValuation
+    const parsed = safeParseJsonContent<VehicleValuation>(content)
+    if (!parsed) return null
     if (!parsed.msrp || typeof parsed.msrp !== 'number') return null
     return parsed
   } catch (err) {
@@ -171,15 +169,35 @@ Road complexity score: ${params.roadScore}/100`,
       ],
       temperature: 0.2,
       max_tokens: 500,
-      response_format: { type: 'json_object' },
     })
 
     const content = response.choices[0]?.message?.content
-    if (!content) return null
-
-    return JSON.parse(content) as InsuranceAnalysis
+    return safeParseJsonContent<InsuranceAnalysis>(content)
   } catch (err) {
     console.error('LLM insurance analysis failed:', err)
     return null
+  }
+}
+
+const safeParseJsonContent = <T>(content: unknown): T | null => {
+  if (typeof content !== 'string' || !content.trim()) return null
+
+  const trimmed = content.trim()
+  const jsonBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const candidate = jsonBlockMatch?.[1]?.trim() || trimmed
+
+  try {
+    return JSON.parse(candidate) as T
+  } catch {
+    const objectStart = candidate.indexOf('{')
+    const objectEnd = candidate.lastIndexOf('}')
+    if (objectStart < 0 || objectEnd <= objectStart) return null
+
+    const extracted = candidate.slice(objectStart, objectEnd + 1)
+    try {
+      return JSON.parse(extracted) as T
+    } catch {
+      return null
+    }
   }
 }
