@@ -11,10 +11,21 @@ import { confidenceLabel, formatCurrency } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
-import type { AgeRange, DrivingHistory, EstimateRequest, EstimateResponse } from './types/estimate'
+import type {
+  AgeRange,
+  AnnualMileage,
+  CoverageLevel,
+  CreditTier,
+  DrivingHistory,
+  EstimateRequest,
+  EstimateResponse,
+} from './types/estimate'
 
 const ageRanges: AgeRange[] = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
 const historyOptions: DrivingHistory[] = ['clean', 'ticket', 'claim', 'multiple']
+const coverageOptions: CoverageLevel[] = ['state-minimum', 'standard', 'full']
+const mileageOptions: AnnualMileage[] = ['low', 'average', 'high']
+const creditOptions: CreditTier[] = ['excellent', 'good', 'fair', 'poor']
 
 function App() {
   const [request, setRequest] = useState<EstimateRequest>({
@@ -24,6 +35,9 @@ function App() {
     vehicleModel: '',
     ageRange: '35-44',
     drivingHistory: 'clean',
+    coverageLevel: 'standard',
+    annualMileage: 'average',
+    creditTier: 'good',
   })
   const [result, setResult] = useState<EstimateResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -152,13 +166,13 @@ function App() {
           className="glass rounded-3xl p-6 md:p-8"
         >
           <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-xs text-primary">
-            <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login insurance estimate tool
+            <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login hybrid AI insurance estimate tool
           </p>
           <h1 className="bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent md:text-5xl">
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Live estimate updates from public data signals. This is an estimate only, not a guaranteed insurer quote.
+            Live estimate updates from public data signals, including vehicle-value, recall-risk, and a lightweight hybrid ML scoring layer. This is an estimate only, not a guaranteed insurer quote.
           </p>
         </motion.header>
 
@@ -217,7 +231,7 @@ function App() {
                 <Input
                   type="number"
                   min={1985}
-                  max={2026}
+                  max={2027}
                   value={request.vehicleYear}
                   onChange={(e) => setRequest((prev) => ({ ...prev, vehicleYear: Number(e.target.value) }))}
                 />
@@ -336,6 +350,49 @@ function App() {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3"> 
+              <div>
+                <label className="mb-1 block text-sm font-medium">Coverage level</label>
+                <Select
+                  value={request.coverageLevel}
+                  onChange={(e) => setRequest((prev) => ({ ...prev, coverageLevel: e.target.value as CoverageLevel }))}
+                >
+                  {coverageOptions.map((opt) => (
+                    <option className="bg-white text-slate-900" key={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Annual mileage</label>
+                <Select
+                  value={request.annualMileage}
+                  onChange={(e) => setRequest((prev) => ({ ...prev, annualMileage: e.target.value as AnnualMileage }))}
+                >
+                  {mileageOptions.map((opt) => (
+                    <option className="bg-white text-slate-900" key={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">Insurance credit tier</label>
+              <Select
+                value={request.creditTier}
+                onChange={(e) => setRequest((prev) => ({ ...prev, creditTier: e.target.value as CreditTier }))}
+              >
+                {creditOptions.map((opt) => (
+                  <option className="bg-white text-slate-900" key={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
             <Button onClick={runEstimate} disabled={loading || !canEstimate}>
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
               Refresh estimate now
@@ -404,6 +461,11 @@ function App() {
                         <p className="text-lg font-semibold">{result.riskScore}/100</p>
                         <p className="text-xs text-white/70">Higher values generally indicate higher premium pressure.</p>
                       </div>
+                      <div className="rounded-xl border border-white/15 bg-black/20 p-3 sm:col-span-2">
+                        <p className="metric-label">Estimated vehicle value</p>
+                        <p className="text-lg font-semibold">{formatCurrency(result.vehicleValueEstimate)}</p>
+                        <p className="text-xs text-white/70">Source: {result.vehicleValueSource ?? 'Fallback model'}.</p>
+                      </div>
                     </div>
                   </Card>
 
@@ -457,9 +519,9 @@ function App() {
                     <h4 className="text-lg font-semibold">How this estimate is built</h4>
                     <p className="mt-2 text-sm text-white/75">
                       We combine state-level insurance baselines, Open-Meteo weather severity, and live road-density
-                      signals from OpenStreetMap Overpass, plus Census tract context, BLS insurance trend data, NHTSA
-                      vehicle taxonomy, and your profile modifiers (including optional small gender adjustment if
-                      provided).
+                      signals from OpenStreetMap Overpass, plus Census tract context, BLS insurance trend data, NHTSA recall signals, and a vehicle-value
+                      severity model. A lightweight on-platform ML layer then scores the full profile and blends
+                      with the actuarial baseline for a more adaptive estimate without any local installs.
                       Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>

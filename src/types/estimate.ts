@@ -7,6 +7,9 @@ export type AgeRange =
   | '65+'
 
 export type DrivingHistory = 'clean' | 'ticket' | 'claim' | 'multiple'
+export type CoverageLevel = 'state-minimum' | 'standard' | 'full'
+export type AnnualMileage = 'low' | 'average' | 'high'
+export type CreditTier = 'excellent' | 'good' | 'fair' | 'poor'
 
 export interface EstimateRequest {
   location: string
@@ -19,6 +22,9 @@ export interface EstimateRequest {
   ageRange: AgeRange
   gender?: string
   drivingHistory: DrivingHistory
+  coverageLevel: CoverageLevel
+  annualMileage: AnnualMileage
+  creditTier: CreditTier
 }
 
 export interface RiskFactor {
@@ -36,6 +42,8 @@ export interface EstimateResponse {
   confidence: number
   confidenceReason: string
   riskScore: number
+  vehicleValueEstimate: number
+  vehicleValueSource?: string
   riskFactors: RiskFactor[]
   context: {
     areaSummary: string
