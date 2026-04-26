@@ -11,7 +11,7 @@ import { confidenceLabel, formatCurrency } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
-import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, type LoadProgress } from './lib/llm-engine'
+import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, type LoadProgress } from './lib/llm-engine'
 import { buildHeuristicInsights } from './lib/insights'
 import type {
   AgeRange,
@@ -229,15 +229,18 @@ function App() {
     }
   }, [canEstimate, request, llmReady])
 
-  useEffect(() => {
-    if (!canEstimate) return
+  const [clearingCache, setClearingCache] = useState(false)
 
-    const timer = setTimeout(() => {
-      runEstimate()
-    }, 700)
-
-    return () => clearTimeout(timer)
-  }, [canEstimate, runEstimate])
+  const handleClearCache = useCallback(async () => {
+    setClearingCache(true)
+    try {
+      await clearModelCache()
+      window.location.reload()
+    } catch (err) {
+      console.error('Failed to clear cache:', err)
+      setClearingCache(false)
+    }
+  }, [])
 
   const filteredMakes = useMemo(() => {
     const query = request.vehicleMake.trim().toLowerCase()
@@ -278,7 +281,7 @@ function App() {
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Real-time insurance estimates powered by an in-browser AI (Llama 3.2), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
+            Insurance estimates powered by an in-browser AI (Microsoft Phi-4), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
           </p>
         </motion.header>
 
@@ -501,12 +504,23 @@ function App() {
 
             <Button onClick={runEstimate} disabled={loading || !canEstimate}>
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Refresh estimate now
+              Get My Estimate
             </Button>
 
             <p className="text-xs text-white/70">
-              Live updates run automatically. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local AI.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
+              Press the button when you're ready. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local Phi-4.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
             </p>
+
+            {llmSupported && (
+              <button
+                onClick={handleClearCache}
+                disabled={clearingCache}
+                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+              >
+                {clearingCache ? <LoaderCircle className="h-3 w-3 animate-spin" /> : null}
+                {clearingCache ? 'Clearing...' : '🗑️ Clear AI model from storage'}
+              </button>
+            )}
 
             {error ? (
               <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
@@ -612,7 +626,7 @@ function App() {
                         </div>
                         <div>
                           <h4 className="text-lg font-semibold">AI Insights</h4>
-                          <p className="text-xs text-violet-300/70">Powered by Llama 3.2 · Running locally in your browser</p>
+                          <p className="text-xs text-violet-300/70">Powered by Microsoft Phi-4 · Running locally in your browser</p>
                         </div>
                       </div>
                       {aiLoading && !aiInsights ? (
@@ -677,7 +691,7 @@ function App() {
                       Generalized Linear Model (GLM) with multiplicative rating factors for age, credit, coverage, mileage, history,
                       vehicle age, and environmental signals (weather, road density, Census income/density). <strong>Layer 3</strong>{' — '}
                       {llmReady
-                        ? 'An in-browser Llama 3.2 1B AI model (via WebLLM/WebGPU) that provides real-time vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
+                        ? 'Microsoft Phi-4 Mini AI model running locally in your browser (via WebLLM/WebGPU) that provides vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
                         : 'A fallback heuristic vehicle valuation model (AI engine requires WebGPU browser).'}
                       {' '}Results are statistical estimates only, not carrier-issued quotes.
                     </p>

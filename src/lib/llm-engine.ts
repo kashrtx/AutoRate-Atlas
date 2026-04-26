@@ -1,6 +1,6 @@
 import { CreateMLCEngine, type MLCEngine } from '@mlc-ai/web-llm'
 
-const MODEL_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC'
+const MODEL_ID = 'Phi-4-mini-instruct-q4f16_1-MLC'
 
 let engineInstance: MLCEngine | null = null
 let engineReady = false
@@ -50,6 +50,33 @@ export const getEngine = async (
 
 export const isLLMReady = () => engineReady
 
+/**
+ * Clear the cached AI model from browser storage (Cache API + IndexedDB).
+ * After clearing, the page should be reloaded so the model can be re-downloaded on next use.
+ */
+export const clearModelCache = async (): Promise<void> => {
+  // Reset in-memory engine state
+  engineInstance = null
+  engineReady = false
+  loadingPromise = null
+
+  // Clear Cache API entries (WebLLM default storage)
+  if ('caches' in window) {
+    const cacheNames = await caches.keys()
+    for (const name of cacheNames) {
+      await caches.delete(name)
+    }
+  }
+
+  // Clear IndexedDB databases used by WebLLM
+  if ('indexedDB' in window) {
+    const dbs = await indexedDB.databases()
+    for (const db of dbs) {
+      if (db.name) indexedDB.deleteDatabase(db.name)
+    }
+  }
+}
+
 export interface VehicleValuation {
   msrp: number
   currentValue: number
@@ -87,15 +114,27 @@ export const queryVehicleValuation = async (
       messages: [
         {
           role: 'system',
-          content: `You are an automotive valuation expert. Return ONLY a JSON object with these exact fields. No markdown, no explanation, just the JSON object.
+          content: `You are an automotive valuation expert with encyclopedic knowledge of car pricing. Return ONLY a valid JSON object — no markdown, no explanation, no extra text.
 
-Fields:
-- msrp: number (original MSRP in USD when new, be accurate based on real world pricing)
-- currentValue: number (estimated current market value in USD considering the year/age)
-- insuranceGroup: number (1-50 scale, 1=cheapest to insure, 50=most expensive. Economy cars like Civic=5-10, mid-range like Camry=10-15, luxury like BMW 3-series=25-30, sports cars like Corvette=35-40, supercars like Ferrari=45-50)
+CRITICAL PRICING RULES — you MUST follow these:
+• Supercars and hypercars (Bugatti, Pagani, Koenigsegg, etc.) have MSRPs in the MILLIONS of dollars. A Bugatti Chiron is ~$3,000,000. A Pagani Huayra is ~$2,500,000. Never price these under $1,000,000.
+• Exotic sports cars (Ferrari, Lamborghini, McLaren, Aston Martin) typically range from $200,000 to $400,000+. A Lamborghini Huracán is ~$250,000. A Ferrari 296 GTB is ~$330,000.
+• Premium luxury (Bentley, Rolls-Royce, Maybach) range from $200,000 to $500,000+. A Rolls-Royce Ghost is ~$350,000.
+• Luxury performance (BMW, Mercedes-Benz, Audi, Porsche, Lexus) range from $40,000 to $120,000+. A BMW M3 is ~$75,000. A Porsche 911 is ~$115,000+.
+• Mainstream vehicles (Toyota, Honda, Ford, Hyundai, etc.) range from $25,000 to $50,000. A Toyota Camry is ~$30,000. A Honda Civic is ~$28,000.
+• Budget/economy vehicles (Nissan Versa, Mitsubishi Mirage, Kia Rio) are under $25,000.
+
+If you are unsure of the exact value for a specific model or trim, estimate conservatively within the correct price bracket for that brand. NEVER return an unrealistically low value for a luxury or exotic brand.
+
+The currentValue should reflect depreciation based on the vehicle's age — newer vehicles hold more value, older ones depreciate. A 5-year-old car is typically worth 50-60% of MSRP, a 10-year-old car 25-35%.
+
+Fields to return:
+- msrp: number (original MSRP in USD when new — MUST be realistic for the brand)
+- currentValue: number (estimated current market value considering year/age)
+- insuranceGroup: number (1-50 scale. Economy=5-10, midrange=12-18, luxury=25-35, sports=35-42, supercars/exotics=43-50)
 - bodyType: string (sedan, suv, truck, coupe, convertible, hatchback, van, wagon)
 - isLuxury: boolean
-- isPerformance: boolean  
+- isPerformance: boolean
 - repairCostTier: string (low, medium, high, very-high)
 - theftRisk: string (low, moderate, high, very-high)`,
         },
@@ -105,7 +144,7 @@ Fields:
         },
       ],
       temperature: 0.1,
-      max_tokens: 300,
+      max_tokens: 400,
     })
 
     const content = response.choices[0]?.message?.content
@@ -142,8 +181,19 @@ export const queryInsuranceAnalysis = async (params: {
       messages: [
         {
           role: 'system',
-          content: `You are an insurance actuary AI. Analyze the driver profile and provide insurance insights. Return ONLY a JSON object with these fields:
-- estimatedMonthly: number (your estimated monthly premium in USD, be realistic based on real US insurance market data)
+          content: `You are an insurance actuary AI with deep knowledge of US auto insurance markets. Analyze the driver profile and provide insurance insights. Return ONLY a valid JSON object — no markdown, no extra text.
+
+IMPORTANT PRICING CONTEXT:
+• The US national average for full-coverage auto insurance is approximately $172/month (~$2,064/year).
+• Vehicles worth over $100,000 commonly cost $300-$600+/month to insure.
+• Supercars and exotics (Ferrari, Lamborghini, Bugatti, McLaren) commonly cost $800-$3,000+/month to insure.
+• Young drivers (18-24) pay 50-70% more than average.
+• Drivers with poor credit pay 30-50% more.
+• Drivers with multiple violations pay 40-60% more.
+• Use the provided vehicle value and state baseline as anchors for your estimate.
+
+Fields:
+- estimatedMonthly: number (your estimated monthly premium in USD — be realistic)
 - confidence: number (0-100, your confidence level)
 - factors: string[] (top 4-5 risk factors affecting this premium, be specific)
 - tips: string[] (3-4 actionable tips to lower their premium)
