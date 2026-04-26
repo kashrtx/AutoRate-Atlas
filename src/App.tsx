@@ -12,6 +12,7 @@ import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
 import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, type LoadProgress } from './lib/llm-engine'
+import { buildHeuristicInsights } from './lib/insights'
 import type {
   AgeRange,
   AIInsights,
@@ -145,6 +146,8 @@ function App() {
 
       if (!response.ok) throw new Error('Failed to fetch estimate')
       const data = (await response.json()) as EstimateResponse
+      const baselineInsights = buildHeuristicInsights(payload, data)
+      setAiInsights(baselineInsights)
 
       // LLM enhancement: get vehicle valuation + recalculate
       if (llmReady) {
@@ -206,8 +209,12 @@ function App() {
               data.confidence = Math.min(96, data.confidence + 8)
             }
           }
+          if (!analysis) {
+            setAiInsights(buildHeuristicInsights(payload, data))
+          }
         } catch (llmErr) {
           console.warn('LLM enhancement failed, using server estimate:', llmErr)
+          setAiInsights(buildHeuristicInsights(payload, data))
         } finally {
           setAiLoading(false)
         }
