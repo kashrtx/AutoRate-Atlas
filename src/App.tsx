@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, Sparkles, TriangleAlert, BrainCircuit } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -11,8 +11,10 @@ import { confidenceLabel, formatCurrency } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
+import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, type LoadProgress } from './lib/llm-engine'
 import type {
   AgeRange,
+  AIInsights,
   AnnualMileage,
   CoverageLevel,
   CreditTier,
@@ -48,6 +50,12 @@ function App() {
   const [locationFocused, setLocationFocused] = useState(false)
   const [makeFocused, setMakeFocused] = useState(false)
   const [modelFocused, setModelFocused] = useState(false)
+  const [llmProgress, setLlmProgress] = useState<LoadProgress | null>(null)
+  const [llmReady, setLlmReady] = useState(false)
+  const [llmSupported] = useState(isWebGPUAvailable)
+  const [aiInsights, setAiInsights] = useState<AIInsights | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const llmInitRef = useRef(false)
 
   const canEstimate = Boolean(request.location && request.vehicleMake && request.vehicleModel && request.vehicleYear)
 
@@ -55,6 +63,16 @@ function App() {
     () => result?.riskFactors.map((factor) => ({ label: factor.label, score: factor.score })) ?? [],
     [result],
   )
+
+  // Initialize LLM engine on mount
+  useEffect(() => {
+    if (llmInitRef.current || !llmSupported) return
+    llmInitRef.current = true
+    getEngine((p) => setLlmProgress(p)).then((eng) => {
+      if (eng) setLlmReady(true)
+      setLlmProgress(null)
+    })
+  }, [llmSupported])
 
   useEffect(() => {
     getVehicleMakes().then(setMakeSuggestions).catch(() => setMakeSuggestions([]))
@@ -107,6 +125,7 @@ function App() {
 
     setLoading(true)
     setError(null)
+    setAiInsights(null)
 
     try {
       let payload = { ...request }
@@ -126,6 +145,74 @@ function App() {
 
       if (!response.ok) throw new Error('Failed to fetch estimate')
       const data = (await response.json()) as EstimateResponse
+
+      // LLM enhancement: get vehicle valuation + recalculate
+      if (llmReady) {
+        setAiLoading(true)
+        try {
+          const valuation = await queryVehicleValuation(
+            payload.vehicleYear, payload.vehicleMake, payload.vehicleModel, payload.vehicleTrim
+          )
+          if (valuation && valuation.msrp > 0) {
+            data.vehicleValueEstimate = valuation.currentValue || valuation.msrp
+            data.vehicleValueSource = `AI Valuation (MSRP: $${valuation.msrp.toLocaleString()}, Group: ${valuation.insuranceGroup}/50)`
+            // Recalculate with real vehicle value
+            const vvFactor = valuation.currentValue <= 15000 ? 0.78 : valuation.currentValue <= 25000 ? 0.90 :
+              valuation.currentValue <= 35000 ? 1.0 : valuation.currentValue <= 50000 ? 1.15 :
+              valuation.currentValue <= 75000 ? 1.32 : valuation.currentValue <= 120000 ? 1.55 :
+              valuation.currentValue <= 200000 ? 1.85 : 2.20
+            const igFactor = 0.7 + (valuation.insuranceGroup / 50) * 1.5
+            const combined = (vvFactor * 0.6 + igFactor * 0.4)
+            const adjusted = Math.round(data.likelyMonthly * combined)
+            data.likelyMonthly = adjusted
+            data.lowMonthly = Math.round(adjusted * 0.78)
+            data.highMonthly = Math.round(adjusted * 1.32)
+            data.yearlyRange = [data.lowMonthly * 12, data.highMonthly * 12]
+          }
+
+          // Get AI analysis
+          const analysis = await queryInsuranceAnalysis({
+            vehicle: `${payload.vehicleYear} ${payload.vehicleMake} ${payload.vehicleModel}`,
+            location: payload.location,
+            state: data.stateDetected || 'US',
+            age: payload.ageRange,
+            drivingHistory: payload.drivingHistory,
+            coverage: payload.coverageLevel,
+            mileage: payload.annualMileage,
+            credit: payload.creditTier,
+            gender: payload.gender,
+            vehicleValue: data.vehicleValueEstimate,
+            weatherScore: data.riskFactors.find(f => f.label === 'Weather severity')?.score ?? 45,
+            roadScore: data.riskFactors.find(f => f.label === 'Road network complexity')?.score ?? 45,
+            stateBaseline: data.riskFactors.find(f => f.label === 'State insurance baseline')?.score ? data.likelyMonthly : 172,
+          })
+          if (analysis) {
+            setAiInsights({
+              summary: analysis.summary,
+              vehicleInsight: analysis.vehicleInsight,
+              locationInsight: analysis.locationInsight,
+              tips: analysis.tips,
+              factors: analysis.factors,
+              llmEstimate: analysis.estimatedMonthly,
+              llmConfidence: analysis.confidence,
+            })
+            // Blend LLM estimate with actuarial (30% LLM, 70% actuarial)
+            if (analysis.estimatedMonthly > 0) {
+              const blended = Math.round(data.likelyMonthly * 0.7 + analysis.estimatedMonthly * 0.3)
+              data.likelyMonthly = blended
+              data.lowMonthly = Math.round(blended * 0.78)
+              data.highMonthly = Math.round(blended * 1.32)
+              data.yearlyRange = [data.lowMonthly * 12, data.highMonthly * 12]
+              data.confidence = Math.min(96, data.confidence + 8)
+            }
+          }
+        } catch (llmErr) {
+          console.warn('LLM enhancement failed, using server estimate:', llmErr)
+        } finally {
+          setAiLoading(false)
+        }
+      }
+
       setResult(data)
     } catch {
       setError('Live data is temporarily unavailable. Showing robust fallback estimate.')
@@ -133,7 +220,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [canEstimate, request])
+  }, [canEstimate, request, llmReady])
 
   useEffect(() => {
     if (!canEstimate) return
@@ -165,14 +252,26 @@ function App() {
           animate={{ opacity: 1, y: 0 }}
           className="glass rounded-3xl p-6 md:p-8"
         >
-          <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-xs text-primary">
-            <ShieldCheck className="h-3.5 w-3.5" /> Transparent, no-login hybrid AI insurance estimate tool
-          </p>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <p className="inline-flex items-center gap-2 rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-xs text-primary">
+              <ShieldCheck className="h-3.5 w-3.5" /> AI-Powered Insurance Estimator
+            </p>
+            {llmSupported && (
+              <p className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all ${
+                llmReady ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-400' :
+                llmProgress ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' :
+                'border-white/20 bg-white/5 text-white/50'
+              }`}>
+                <BrainCircuit className="h-3.5 w-3.5" />
+                {llmReady ? 'AI Engine Ready' : llmProgress ? `Loading AI: ${(llmProgress.progress * 100).toFixed(0)}%` : 'Initializing AI...'}
+              </p>
+            )}
+          </div>
           <h1 className="bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent md:text-5xl">
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Live estimate updates from public data signals, including vehicle-value, recall-risk, and a lightweight hybrid ML scoring layer. This is an estimate only, not a guaranteed insurer quote.
+            Real-time insurance estimates powered by an in-browser AI (Llama 3.2), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
           </p>
         </motion.header>
 
@@ -399,7 +498,7 @@ function App() {
             </Button>
 
             <p className="text-xs text-white/70">
-              Live updates run automatically after input changes. Privacy-safe: no account required.
+              Live updates run automatically. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local AI.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
             </p>
 
             {error ? (
@@ -497,6 +596,54 @@ function App() {
                     </ul>
                   </Card>
 
+                  {/* AI Insights Panel */}
+                  {(aiInsights || aiLoading) && (
+                    <Card>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 border border-violet-400/30">
+                          <Sparkles className="h-4 w-4 text-violet-300" />
+                        </div>
+                        <div>
+                          <h4 className="text-lg font-semibold">AI Insights</h4>
+                          <p className="text-xs text-violet-300/70">Powered by Llama 3.2 · Running locally in your browser</p>
+                        </div>
+                      </div>
+                      {aiLoading && !aiInsights ? (
+                        <div className="flex items-center gap-3 py-6">
+                          <LoaderCircle className="h-5 w-5 animate-spin text-violet-400" />
+                          <span className="text-sm text-white/60">AI is analyzing your profile...</span>
+                        </div>
+                      ) : aiInsights ? (
+                        <div className="space-y-3">
+                          <p className="text-sm text-white/85 leading-relaxed">{aiInsights.summary}</p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-3">
+                              <p className="text-xs font-medium text-violet-300 mb-1">🚗 Vehicle</p>
+                              <p className="text-sm text-white/80">{aiInsights.vehicleInsight}</p>
+                            </div>
+                            <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-3">
+                              <p className="text-xs font-medium text-violet-300 mb-1">📍 Location</p>
+                              <p className="text-sm text-white/80">{aiInsights.locationInsight}</p>
+                            </div>
+                          </div>
+                          {aiInsights.tips.length > 0 && (
+                            <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 p-3">
+                              <p className="text-xs font-medium text-emerald-300 mb-2">💡 Tips to lower your premium</p>
+                              <ul className="space-y-1">
+                                {aiInsights.tips.map((tip, i) => (
+                                  <li key={i} className="text-sm text-white/75">• {tip}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {aiInsights.llmEstimate ? (
+                            <p className="text-xs text-white/50">AI independent estimate: {formatCurrency(aiInsights.llmEstimate)}/mo (blended 30% into final result)</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </Card>
+                  )}
+
                   <Card>
                     <h4 className="text-lg font-semibold">Data sources</h4>
                     <div className="mt-3 grid gap-2">
@@ -518,11 +665,14 @@ function App() {
                   <Card>
                     <h4 className="text-lg font-semibold">How this estimate is built</h4>
                     <p className="mt-2 text-sm text-white/75">
-                      We combine state-level insurance baselines, Open-Meteo weather severity, and live road-density
-                      signals from OpenStreetMap Overpass, plus Census tract context, BLS insurance trend data, NHTSA recall signals, and a vehicle-value
-                      severity model. A lightweight on-platform ML layer then scores the full profile and blends
-                      with the actuarial baseline for a more adaptive estimate without any local installs.
-                      Results are statistical estimates only, not carrier-issued quotes.
+                      AutoRate Atlas uses a three-layer architecture: <strong>Layer 1</strong> — Real state-level insurance baselines
+                      (all 50 states + DC) calibrated from 2025/2026 Insurify and Experian data. <strong>Layer 2</strong> — An actuarial
+                      Generalized Linear Model (GLM) with multiplicative rating factors for age, credit, coverage, mileage, history,
+                      vehicle age, and environmental signals (weather, road density, Census income/density). <strong>Layer 3</strong>{' — '}
+                      {llmReady
+                        ? 'An in-browser Llama 3.2 1B AI model (via WebLLM/WebGPU) that provides real-time vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
+                        : 'A fallback heuristic vehicle valuation model (AI engine requires WebGPU browser).'}
+                      {' '}Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>
                 </div>

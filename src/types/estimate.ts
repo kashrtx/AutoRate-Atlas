@@ -34,6 +34,16 @@ export interface RiskFactor {
   source: string
 }
 
+export interface AIInsights {
+  summary: string
+  vehicleInsight: string
+  locationInsight: string
+  tips: string[]
+  factors: string[]
+  llmEstimate?: number
+  llmConfidence?: number
+}
+
 export interface EstimateResponse {
   lowMonthly: number
   likelyMonthly: number
@@ -58,4 +68,6 @@ export interface EstimateResponse {
   sources: { name: string; category: string; url: string; note: string }[]
   generatedAt: string
   isEstimate: true
+  aiInsights?: AIInsights
+  stateDetected?: string
 }

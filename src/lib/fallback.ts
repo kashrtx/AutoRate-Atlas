@@ -1,98 +1,60 @@
 import type { EstimateRequest, EstimateResponse } from '../types/estimate'
 
-const coverageFactor = {
-  'state-minimum': 0.74,
-  standard: 1,
-  full: 1.29,
-}
 
-const mileageFactor = {
-  low: 0.93,
-  average: 1,
-  high: 1.16,
-}
 
-const creditFactor = {
-  excellent: 0.86,
-  good: 0.95,
-  fair: 1.08,
-  poor: 1.22,
-}
+const AGE: Record<string, number> = { '18-24':1.72,'25-34':1.18,'35-44':1.0,'45-54':0.93,'55-64':0.90,'65+':1.05 }
+const HIST: Record<string, number> = { clean:0.88,ticket:1.12,claim:1.32,multiple:1.55 }
+const COV: Record<string, number> = { 'state-minimum':0.62,standard:1.0,full:1.38 }
+const MILE: Record<string, number> = { low:0.90,average:1.0,high:1.18 }
+const CRED: Record<string, number> = { excellent:0.82,good:0.95,fair:1.15,poor:1.35 }
 
 export const getFallbackEstimate = (request: EstimateRequest): EstimateResponse => {
-  const base = 176
-  const ageModifier = request.ageRange === '18-24' ? 1.41 : request.ageRange === '25-34' ? 1.14 : 1
-  const historyModifier = request.drivingHistory === 'clean' ? 0.92 : request.drivingHistory === 'ticket' ? 1.08 : 1.2
-  const likelyMonthly = Math.round(
-    base *
-      ageModifier *
-      historyModifier *
-      coverageFactor[request.coverageLevel] *
-      mileageFactor[request.annualMileage] *
-      creditFactor[request.creditTier],
-  )
+  const base = 172
+  const factor = (AGE[request.ageRange] ?? 1) * (HIST[request.drivingHistory] ?? 1) *
+    (COV[request.coverageLevel] ?? 1) * (MILE[request.annualMileage] ?? 1) * (CRED[request.creditTier] ?? 1)
+  const likelyMonthly = Math.round(base * factor)
 
   return {
-    lowMonthly: Math.round(likelyMonthly * 0.84),
+    lowMonthly: Math.round(likelyMonthly * 0.78),
     likelyMonthly,
-    highMonthly: Math.round(likelyMonthly * 1.31),
-    yearlyRange: [Math.round(likelyMonthly * 0.84 * 12), Math.round(likelyMonthly * 1.31 * 12)],
-    confidence: 57,
-    confidenceReason: 'Using fallback regional baseline due to temporary data limitations.',
-    riskScore: 59,
+    highMonthly: Math.round(likelyMonthly * 1.32),
+    yearlyRange: [Math.round(likelyMonthly * 0.78 * 12), Math.round(likelyMonthly * 1.32 * 12)],
+    confidence: 48,
+    confidenceReason: 'Using fallback estimator — live data feeds temporarily unavailable.',
+    riskScore: Math.round(Math.min(99, factor * 40)),
     vehicleValueEstimate: 28500,
-    vehicleValueSource: 'Fallback make/model depreciation model',
+    vehicleValueSource: 'Fallback default',
     riskFactors: [
-      {
-        label: 'Regional baseline risk',
-        score: 60,
-        reason: 'Fallback model using broad statewide trends.',
-        source: 'NHTSA crash trend summaries',
-      },
-      {
-        label: 'Driver + policy profile',
-        score: 58,
-        reason: 'Age, record, credit tier, coverage level, and annual mileage weighting.',
-        source: 'III aggregate risk factors',
-      },
+      { label: 'Driver profile', score: Math.round(Math.min(98, factor * 42)),
+        reason: `Age ${request.ageRange}, ${request.drivingHistory} record, ${request.creditTier} credit.`,
+        source: 'Actuarial GLM fallback' },
+      { label: 'National baseline', score: 50,
+        reason: 'Using national average baseline of $172/mo for full coverage.',
+        source: 'Insurify 2025-2026 averages' },
     ],
     context: {
-      areaSummary: 'Location-level incident data is temporarily unavailable, so the estimate uses broader regional averages.',
-      historicalTrend: 'Historical trend shown uses a normalized, seasonality-adjusted fallback curve.',
-      comparisonInsight: 'Coverage level, credit tier, age, and claims history are typically major premium drivers.',
+      areaSummary: 'Location-level data temporarily unavailable. Using national averages.',
+      historicalTrend: 'Fallback curve uses normalized seasonality.',
+      comparisonInsight: 'Coverage level, credit, age, and history are the main premium drivers.',
     },
     charts: {
-      estimateTrend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, idx) => ({
+      estimateTrend: ['Jan','Feb','Mar','Apr','May','Jun'].map((month, i) => ({
         month,
-        low: Math.round(likelyMonthly * (0.8 + idx * 0.012)),
-        likely: Math.round(likelyMonthly * (0.95 + idx * 0.018)),
-        high: Math.round(likelyMonthly * (1.1 + idx * 0.018)),
+        low: Math.round(likelyMonthly * (0.93 + i * 0.012)),
+        likely: Math.round(likelyMonthly * (0.95 + i * 0.016)),
+        high: Math.round(likelyMonthly * (1.1 + i * 0.018)),
       })),
       areaComparison: [
-        { segment: 'Your area', value: likelyMonthly },
-        { segment: 'State avg', value: Math.round(likelyMonthly * 0.93) },
-        { segment: 'National avg', value: 182 },
+        { segment: 'Your estimate', value: likelyMonthly },
+        { segment: 'National avg', value: 172 },
       ],
-      ageComparison: [
-        { age: '18-24', estimate: Math.round(likelyMonthly * 1.23) },
-        { age: '25-34', estimate: Math.round(likelyMonthly * 1.11) },
-        { age: '35-44', estimate: Math.round(likelyMonthly) },
-        { age: '45-54', estimate: Math.round(likelyMonthly * 0.94) },
-      ],
+      ageComparison: Object.entries(AGE).map(([age, f]) => ({
+        age, estimate: Math.round(base * f * (COV[request.coverageLevel] ?? 1)),
+      })),
     },
     sources: [
-      {
-        name: 'NHTSA Traffic Safety Facts',
-        category: 'Crash trends',
-        url: 'https://www.nhtsa.gov/research-data',
-        note: 'National and regional crash trend baselines.',
-      },
-      {
-        name: 'Insurance Information Institute (III)',
-        category: 'Risk context',
-        url: 'https://www.iii.org',
-        note: 'Aggregate driver-risk relationships used for weighting.',
-      },
+      { name: 'Actuarial GLM Fallback', category: 'Rating model', url: 'https://en.wikipedia.org/wiki/Generalized_linear_model', note: 'Offline multiplicative rating model.' },
+      { name: 'Insurify Baselines', category: 'Premium data', url: 'https://www.insurify.com/', note: 'National average baseline.' },
     ],
     generatedAt: new Date().toISOString(),
     isEstimate: true,
