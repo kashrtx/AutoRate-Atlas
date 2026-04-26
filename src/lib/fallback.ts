@@ -1,53 +1,80 @@
 import type { EstimateRequest, EstimateResponse } from '../types/estimate'
 
+const coverageFactor = {
+  'state-minimum': 0.74,
+  standard: 1,
+  full: 1.29,
+}
+
+const mileageFactor = {
+  low: 0.93,
+  average: 1,
+  high: 1.16,
+}
+
+const creditFactor = {
+  excellent: 0.86,
+  good: 0.95,
+  fair: 1.08,
+  poor: 1.22,
+}
+
 export const getFallbackEstimate = (request: EstimateRequest): EstimateResponse => {
-  const base = 165
-  const ageModifier = request.ageRange === '18-24' ? 1.24 : request.ageRange === '25-34' ? 1.1 : 1
-  const historyModifier = request.drivingHistory === 'clean' ? 0.94 : 1.18
-  const likelyMonthly = Math.round(base * ageModifier * historyModifier)
+  const base = 176
+  const ageModifier = request.ageRange === '18-24' ? 1.41 : request.ageRange === '25-34' ? 1.14 : 1
+  const historyModifier = request.drivingHistory === 'clean' ? 0.92 : request.drivingHistory === 'ticket' ? 1.08 : 1.2
+  const likelyMonthly = Math.round(
+    base *
+      ageModifier *
+      historyModifier *
+      coverageFactor[request.coverageLevel] *
+      mileageFactor[request.annualMileage] *
+      creditFactor[request.creditTier],
+  )
 
   return {
-    lowMonthly: Math.round(likelyMonthly * 0.82),
+    lowMonthly: Math.round(likelyMonthly * 0.84),
     likelyMonthly,
-    highMonthly: Math.round(likelyMonthly * 1.34),
-    yearlyRange: [Math.round(likelyMonthly * 0.82 * 12), Math.round(likelyMonthly * 1.34 * 12)],
-    confidence: 52,
+    highMonthly: Math.round(likelyMonthly * 1.31),
+    yearlyRange: [Math.round(likelyMonthly * 0.84 * 12), Math.round(likelyMonthly * 1.31 * 12)],
+    confidence: 57,
     confidenceReason: 'Using fallback regional baseline due to temporary data limitations.',
-    riskScore: 56,
+    riskScore: 59,
+    vehicleValueEstimate: 28500,
     riskFactors: [
       {
         label: 'Regional baseline risk',
-        score: 58,
+        score: 60,
         reason: 'Fallback model using broad statewide trends.',
         source: 'NHTSA crash trend summaries',
       },
       {
-        label: 'Driver profile',
-        score: 55,
-        reason: 'Simple weighting from age range and record history.',
+        label: 'Driver + policy profile',
+        score: 58,
+        reason: 'Age, record, credit tier, coverage level, and annual mileage weighting.',
         source: 'III aggregate risk factors',
       },
     ],
     context: {
       areaSummary: 'Location-level incident data is temporarily unavailable, so the estimate uses broader regional averages.',
       historicalTrend: 'Historical trend shown uses a normalized, seasonality-adjusted fallback curve.',
-      comparisonInsight: 'Younger age groups and recent claims typically increase expected premiums in most U.S. regions.',
+      comparisonInsight: 'Coverage level, credit tier, age, and claims history are typically major premium drivers.',
     },
     charts: {
       estimateTrend: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, idx) => ({
         month,
-        low: Math.round(likelyMonthly * (0.78 + idx * 0.015)),
-        likely: Math.round(likelyMonthly * (0.95 + idx * 0.02)),
-        high: Math.round(likelyMonthly * (1.12 + idx * 0.02)),
+        low: Math.round(likelyMonthly * (0.8 + idx * 0.012)),
+        likely: Math.round(likelyMonthly * (0.95 + idx * 0.018)),
+        high: Math.round(likelyMonthly * (1.1 + idx * 0.018)),
       })),
       areaComparison: [
         { segment: 'Your area', value: likelyMonthly },
-        { segment: 'State avg', value: Math.round(likelyMonthly * 0.92) },
-        { segment: 'National avg', value: 168 },
+        { segment: 'State avg', value: Math.round(likelyMonthly * 0.93) },
+        { segment: 'National avg', value: 182 },
       ],
       ageComparison: [
-        { age: '18-24', estimate: Math.round(likelyMonthly * 1.28) },
-        { age: '25-34', estimate: Math.round(likelyMonthly * 1.1) },
+        { age: '18-24', estimate: Math.round(likelyMonthly * 1.23) },
+        { age: '25-34', estimate: Math.round(likelyMonthly * 1.11) },
         { age: '35-44', estimate: Math.round(likelyMonthly) },
         { age: '45-54', estimate: Math.round(likelyMonthly * 0.94) },
       ],
