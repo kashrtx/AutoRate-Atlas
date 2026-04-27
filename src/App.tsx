@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, Sparkles, TriangleAlert, BrainCircuit, Power, PowerOff, HardDrive, Download, Trash2 } from 'lucide-react'
+import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, Sparkles, TriangleAlert, BrainCircuit, PowerOff, HardDrive, Download, Trash2 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -11,9 +11,9 @@ import { confidenceLabel, formatCurrency } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
-import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, unloadEngine, getAutoLoad, setAutoLoad, getSelectedModelId, setSelectedModelId, getSelectedModelOption, getModelStorageSize, formatStorageSize, MODEL_OPTIONS, type LoadProgress } from './lib/llm-engine'
+import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, unloadEngine, getAutoLoad, setAutoLoad, getSelectedModelId, setSelectedModelId, getModelStorageSize, formatStorageSize, MODEL_OPTIONS, type LoadProgress } from './lib/llm-engine'
 import { buildHeuristicInsights } from './lib/insights'
-import { lookupVehicleValue, vehicleValueFactor } from './lib/vehicle-values'
+import { vehicleValueFactor } from './lib/vehicle-values'
 import type {
   AgeRange,
   AIInsights,

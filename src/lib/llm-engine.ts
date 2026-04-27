@@ -160,7 +160,8 @@ export const unloadEngine = async (): Promise<void> => {
   if (engineInstance) {
     try {
       // MLCEngine may have a dispose/unload method
-      if ('unload' in engineInstance && typeof (engineInstance as Record<string, unknown>).unload === 'function') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ('unload' in engineInstance && typeof (engineInstance as any).unload === 'function') {
         await (engineInstance as unknown as { unload: () => Promise<void> }).unload()
       }
     } catch (err) {
