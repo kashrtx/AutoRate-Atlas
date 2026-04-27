@@ -54,23 +54,23 @@ const BRAND_MSRP: Record<string, number> = {
   POLESTAR: 52_000,
 
   // Mainstream
-  TOYOTA: 32_000,
-  HONDA: 30_000,
-  FORD: 36_000,
-  CHEVROLET: 34_000,
-  GMC: 42_000,
-  RAM: 42_000,
-  DODGE: 38_000,
-  JEEP: 38_000,
-  CHRYSLER: 35_000,
-  BUICK: 32_000,
-  SUBARU: 30_000,
-  MAZDA: 30_000,
-  HYUNDAI: 28_000,
-  KIA: 28_000,
-  NISSAN: 28_000,
-  VOLKSWAGEN: 30_000,
-  VW: 30_000,
+  TOYOTA: 34_000,
+  HONDA: 32_000,
+  FORD: 40_000,
+  CHEVROLET: 38_000,
+  GMC: 45_000,
+  RAM: 45_000,
+  DODGE: 40_000,
+  JEEP: 40_000,
+  CHRYSLER: 38_000,
+  BUICK: 35_000,
+  SUBARU: 33_000,
+  MAZDA: 33_000,
+  HYUNDAI: 31_000,
+  KIA: 31_000,
+  NISSAN: 30_000,
+  VOLKSWAGEN: 33_000,
+  VW: 33_000,
 
   // Budget / Economy
   MITSUBISHI: 24_000,
@@ -84,23 +84,23 @@ const BRAND_MSRP: Record<string, number> = {
 const DEFAULT_MSRP = 32_000
 
 /**
- * Apply depreciation based on vehicle age.
- * New cars hold ~95% in year 1, then ~15% per year after that, bottoming out at ~10%.
+ * Apply insurance-standard Actual Cash Value (ACV) depreciation based on vehicle age.
+ * Insurance uses ACV which depreciates much gentler than aggressive trade-in values.
  */
-const applyDepreciation = (msrp: number, year: number): number => {
+export const applyDepreciation = (msrp: number, year: number): number => {
   const currentYear = new Date().getFullYear()
   const age = Math.max(0, currentYear - year)
 
-  if (age === 0) return msrp * 0.95
-  if (age === 1) return msrp * 0.82
-  if (age === 2) return msrp * 0.72
-  if (age === 3) return msrp * 0.63
-  if (age === 4) return msrp * 0.55
-  if (age === 5) return msrp * 0.48
-  if (age <= 7) return msrp * 0.38
-  if (age <= 10) return msrp * 0.28
-  if (age <= 15) return msrp * 0.18
-  return msrp * 0.10
+  if (age === 0) return msrp // Current model year holds full value
+  if (age === 1) return msrp * 0.90
+  if (age === 2) return msrp * 0.82
+  if (age === 3) return msrp * 0.75
+  if (age === 4) return msrp * 0.68
+  if (age === 5) return msrp * 0.62
+  if (age <= 7) return msrp * 0.50
+  if (age <= 10) return msrp * 0.36
+  if (age <= 15) return msrp * 0.25
+  return msrp * 0.15
 }
 
 /** Exception: some brands actually appreciate or hold value much better */
@@ -125,10 +125,10 @@ export const lookupVehicleValue = (
     // Exotics/supercars depreciate much slower (or appreciate)
     const currentYear = new Date().getFullYear()
     const age = Math.max(0, currentYear - year)
-    if (age <= 2) currentValue = msrp * 0.92
-    else if (age <= 5) currentValue = msrp * 0.80
-    else if (age <= 10) currentValue = msrp * 0.70
-    else currentValue = msrp * 0.60
+    if (age <= 2) currentValue = msrp * 0.95
+    else if (age <= 5) currentValue = msrp * 0.85
+    else if (age <= 10) currentValue = msrp * 0.80
+    else currentValue = msrp * 0.75
   } else {
     currentValue = applyDepreciation(msrp, year)
   }

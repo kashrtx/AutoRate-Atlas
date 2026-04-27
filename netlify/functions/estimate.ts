@@ -47,10 +47,10 @@ const BRAND_MSRP: Record<string, number> = {
   AUDI:52000,LEXUS:50000,INFINITI:48000,GENESIS:48000,VOLVO:46000,
   LINCOLN:52000,CADILLAC:55000,ACURA:42000,'ALFA ROMEO':45000,
   LOTUS:85000,TESLA:45000,RIVIAN:75000,LUCID:78000,POLESTAR:52000,
-  TOYOTA:32000,HONDA:30000,FORD:36000,CHEVROLET:34000,GMC:42000,
-  RAM:42000,DODGE:38000,JEEP:38000,CHRYSLER:35000,BUICK:32000,
-  SUBARU:30000,MAZDA:30000,HYUNDAI:28000,KIA:28000,NISSAN:28000,
-  VOLKSWAGEN:30000,VW:30000,MITSUBISHI:24000,FIAT:22000,MINI:30000,
+  TOYOTA:34000,HONDA:32000,FORD:40000,CHEVROLET:38000,GMC:45000,
+  RAM:45000,DODGE:40000,JEEP:40000,CHRYSLER:38000,BUICK:35000,
+  SUBARU:33000,MAZDA:33000,HYUNDAI:31000,KIA:31000,NISSAN:30000,
+  VOLKSWAGEN:33000,VW:33000,MITSUBISHI:24000,FIAT:22000,MINI:30000,
 }
 const APPRECIATION_BRANDS = new Set(['KOENIGSEGG','BUGATTI','PAGANI','FERRARI','LAMBORGHINI','ROLLS-ROYCE','ROLLS ROYCE','PORSCHE'])
 
@@ -61,9 +61,9 @@ const lookupVehicleValue = (make: string, year: number) => {
   const age = Math.max(0, currentYear - year)
   let currentValue: number
   if (APPRECIATION_BRANDS.has(norm)) {
-    currentValue = age <= 2 ? msrp * 0.92 : age <= 5 ? msrp * 0.80 : age <= 10 ? msrp * 0.70 : msrp * 0.60
+    currentValue = age <= 2 ? msrp * 0.95 : age <= 5 ? msrp * 0.85 : age <= 10 ? msrp * 0.80 : msrp * 0.75
   } else {
-    const depRate = age === 0 ? 0.95 : age === 1 ? 0.82 : age <= 3 ? 0.63 : age <= 5 ? 0.48 : age <= 10 ? 0.28 : 0.15
+    const depRate = age === 0 ? 1.0 : age === 1 ? 0.90 : age === 2 ? 0.82 : age === 3 ? 0.75 : age === 4 ? 0.68 : age === 5 ? 0.62 : age <= 7 ? 0.50 : age <= 10 ? 0.36 : age <= 15 ? 0.25 : 0.15
     currentValue = msrp * depRate
   }
   return { msrp: Math.round(msrp), currentValue: Math.round(currentValue) }

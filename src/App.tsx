@@ -13,7 +13,7 @@ import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
 import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, unloadEngine, getAutoLoad, setAutoLoad, getSelectedModelId, setSelectedModelId, getModelStorageSize, formatStorageSize, MODEL_OPTIONS, type LoadProgress } from './lib/llm-engine'
 import { buildHeuristicInsights } from './lib/insights'
-import { vehicleValueFactor } from './lib/vehicle-values'
+import { vehicleValueFactor, applyDepreciation } from './lib/vehicle-values'
 import type {
   AgeRange,
   AIInsights,
@@ -63,6 +63,7 @@ function App() {
   const [storageSize, setStorageSize] = useState(0)
   const [aiDisabledBanner, setAiDisabledBanner] = useState(!getAutoLoad())
   const [modelSwitching, setModelSwitching] = useState(false)
+  const [showLoadConfirm, setShowLoadConfirm] = useState(false)
   const storagePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const selectedModelOption = useMemo(() => MODEL_OPTIONS.find(m => m.id === selectedModelId) || MODEL_OPTIONS[0], [selectedModelId])
 
@@ -173,12 +174,12 @@ function App() {
             payload.vehicleYear, payload.vehicleMake, payload.vehicleModel, payload.vehicleTrim
           )
           if (valuation && valuation.msrp > 0) {
-            const aiValue = valuation.currentValue || valuation.msrp
-            data.vehicleValueEstimate = aiValue
+            const aiAcv = applyDepreciation(valuation.msrp, payload.vehicleYear)
+            data.vehicleValueEstimate = aiAcv
             data.vehicleValueSource = `AI Valuation (MSRP: $${valuation.msrp.toLocaleString()}, Group: ${valuation.insuranceGroup}/50)`
 
             // FULL recalculate using AI vehicle value — don't blend with server's placeholder
-            const vvFact = vehicleValueFactor(aiValue)
+            const vvFact = vehicleValueFactor(aiAcv)
             const igFactor = 0.7 + (valuation.insuranceGroup / 50) * 1.5
             const combined = (vvFact * 0.6 + igFactor * 0.4)
             const adjusted = Math.round(data.likelyMonthly * combined)
@@ -264,8 +265,13 @@ function App() {
     }
   }, [])
 
-  const handleLoadModel = useCallback(async () => {
+  const handleLoadModelClick = useCallback(() => {
     if (!llmSupported) return
+    setShowLoadConfirm(true)
+  }, [llmSupported])
+
+  const confirmLoadModel = useCallback(async () => {
+    setShowLoadConfirm(false)
     setAiDisabledBanner(false)
     setAutoLoad(true)
     setAutoLoadEnabled(true)
@@ -274,7 +280,7 @@ function App() {
       if (eng) setLlmReady(true)
       setLlmProgress(null)
     })
-  }, [llmSupported, selectedModelId])
+  }, [selectedModelId])
 
   const handleUnloadModel = useCallback(async () => {
     await unloadEngine()
@@ -614,7 +620,7 @@ function App() {
 
                   {!llmReady && !llmProgress ? (
                     <button
-                      onClick={handleLoadModel}
+                      onClick={handleLoadModelClick}
                       disabled={modelSwitching}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
                     >
@@ -850,6 +856,54 @@ function App() {
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showLoadConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-500/20">
+                  <BrainCircuit className="h-5 w-5 text-violet-400" />
+                </div>
+                <h3 className="text-xl font-semibold text-white">Enable AI Engine</h3>
+              </div>
+              
+              <p className="mb-4 text-sm text-white/80">
+                You are about to download the <strong>{selectedModelOption.label}</strong> AI model to run directly in your browser. This enables hyper-accurate vehicle valuation and personalized insurance insights without sending your data to the cloud.
+              </p>
+              
+              <div className="mb-6 space-y-2 rounded-xl bg-black/30 p-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-white/60">Model Size:</span>
+                  <span className="font-medium text-white">{selectedModelOption.sizeHint}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Storage:</span>
+                  <span className="font-medium text-white">Cached locally after download</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/60">Requirements:</span>
+                  <span className="font-medium text-white">WebGPU-capable browser</span>
+                </div>
+              </div>
+              
+              <div className="flex justify-end gap-3">
+                <Button className="bg-transparent border border-white/20 text-white hover:bg-white/10" onClick={() => setShowLoadConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={confirmLoadModel} className="bg-violet-600 hover:bg-violet-700 text-white border-0">
+                  <Download className="mr-2 h-4 w-4" /> Start Download
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

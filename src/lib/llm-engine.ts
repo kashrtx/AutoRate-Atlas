@@ -11,18 +11,18 @@ export interface ModelOption {
 
 export const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: 'gemma-2-2b-it-q4f16_1-MLC',
-    label: 'Gemma 2 2B',
-    family: 'gemma',
-    sizeHint: '~1.4 GB',
-    description: 'Recommended — Google Gemma 2',
-  },
-  {
     id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
     label: 'Phi-3.5 Mini',
     family: 'phi',
     sizeHint: '~2.2 GB',
     description: 'Larger model — Microsoft Phi-3.5',
+  },
+  {
+    id: 'gemma-2-2b-it-q4f16_1-MLC',
+    label: 'Gemma 2 2B',
+    family: 'gemma',
+    sizeHint: '~1.4 GB',
+    description: 'Recommended — Google Gemma 2',
   },
   {
     id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
@@ -51,9 +51,9 @@ export const isWebGPUAvailable = (): boolean => {
 
 // ── Auto-load preference ───────────────────────────────────────────────────────
 export const getAutoLoad = (): boolean => {
-  if (typeof localStorage === 'undefined') return true
+  if (typeof localStorage === 'undefined') return false
   const stored = localStorage.getItem(STORAGE_KEY_AUTOLOAD)
-  return stored !== 'false' // Default to true if never set
+  return stored === 'true' // Default to false if never set
 }
 
 export const setAutoLoad = (enabled: boolean): void => {
