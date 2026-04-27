@@ -297,7 +297,7 @@ export const handler: Handler = async (event) => {
           { name: 'U.S. Census ACS 5-year', category: 'Socioeconomic', url: 'https://www.census.gov/data/developers/data-sets/acs-5year.html', note: ok(2) ? 'Tract-level income and population.' : 'Unavailable; fallback used.' },
           { name: 'NHTSA Recalls API', category: 'Vehicle recalls', url: 'https://api.nhtsa.gov/', note: ok(4) ? 'Vehicle recall count blended into risk.' : 'Unavailable; fallback used.' },
           { name: 'BLS CPI Data', category: 'Insurance trend', url: 'https://www.bls.gov/developers/', note: ok(3) ? 'Motor vehicle insurance CPI trend applied.' : 'Unavailable; baseline used.' },
-          { name: 'WebLLM (Microsoft Phi-3.5 Mini)', category: 'AI vehicle valuation', url: 'https://github.com/mlc-ai/web-llm', note: 'In-browser AI provides vehicle value, insurance group, and personalized insights.' },
+          { name: 'WebLLM (Google Gemma 2)', category: 'AI vehicle valuation', url: 'https://github.com/mlc-ai/web-llm', note: 'In-browser AI provides vehicle value, insurance group, and personalized insights.' },
           { name: 'Actuarial GLM Engine', category: 'Rating model', url: 'https://en.wikipedia.org/wiki/Generalized_linear_model', note: 'Multiplicative rating factors calibrated to industry data.' },
         ],
         generatedAt: new Date().toISOString(),

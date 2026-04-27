@@ -7,7 +7,7 @@ import { Input } from './components/ui/input'
 import { Select } from './components/ui/select'
 import { EstimateTrendChart } from './components/charts/estimate-trend-chart'
 import { RiskBreakdownChart } from './components/charts/risk-breakdown-chart'
-import { confidenceLabel, formatCurrency } from './lib/format'
+import { confidenceLabel, formatCurrency, CURRENCY_LABEL } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
@@ -188,9 +188,9 @@ function App() {
             data.yearlyRange = [data.lowMonthly * 12, data.highMonthly * 12]
           }
 
-          // Get AI analysis
+          // Get AI analysis — include trim so AI sees e.g. "2025 Mazda CX-5 Signature Turbo"
           const analysis = await queryInsuranceAnalysis({
-            vehicle: `${payload.vehicleYear} ${payload.vehicleMake} ${payload.vehicleModel}`,
+            vehicle: `${payload.vehicleYear} ${payload.vehicleMake} ${payload.vehicleModel}${payload.vehicleTrim ? ` ${payload.vehicleTrim}` : ''}`,
             location: payload.location,
             state: data.stateDetected || 'US',
             age: payload.ageRange,
@@ -704,14 +704,18 @@ function App() {
               <motion.div key="result" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="grid gap-4">
                   <Card>
-                    <p className="metric-label">Estimated monthly range</p>
+                    <div className="flex items-baseline justify-between">
+                      <p className="metric-label">Estimated monthly range <span className="text-[10px] text-white/40 ml-1">({CURRENCY_LABEL})</span></p>
+                      {llmReady && <span className="inline-flex items-center gap-1 rounded-full border border-violet-400/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300"><Sparkles className="h-2.5 w-2.5" /> AI-Enhanced</span>}
+                    </div>
                     <h3 className="mt-1 text-3xl font-semibold">
                       {formatCurrency(result.lowMonthly)} — {formatCurrency(result.highMonthly)}
+                      <span className="ml-2 text-base font-normal text-white/50">{CURRENCY_LABEL}</span>
                     </h3>
                     <p className="mt-1 text-sm text-white/70">
                       Likely around {formatCurrency(result.likelyMonthly)}/month · yearly {formatCurrency(result.yearlyRange[0])}
-                      {' - '}
-                      {formatCurrency(result.yearlyRange[1])}
+                      {' – '}
+                      {formatCurrency(result.yearlyRange[1])} {CURRENCY_LABEL}
                     </p>
                     <p className="mt-1 text-xs text-white/60">Generated {new Date(result.generatedAt).toLocaleString()}</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -726,42 +730,14 @@ function App() {
                         <p className="text-xs text-white/70">Higher values generally indicate higher premium pressure.</p>
                       </div>
                       <div className="rounded-xl border border-white/15 bg-black/20 p-3 sm:col-span-2">
-                        <p className="metric-label">Estimated vehicle value</p>
-                        <p className="text-lg font-semibold">{formatCurrency(result.vehicleValueEstimate)}</p>
+                        <p className="metric-label">Estimated vehicle value <span className="text-[10px] text-white/40 ml-1">({CURRENCY_LABEL})</span></p>
+                        <p className="text-lg font-semibold">{formatCurrency(result.vehicleValueEstimate)} <span className="text-sm font-normal text-white/50">{CURRENCY_LABEL}</span></p>
                         <p className="text-xs text-white/70">Source: {result.vehicleValueSource ?? 'Fallback model'}.</p>
                       </div>
                     </div>
                   </Card>
 
-                  <Card>
-                    <h4 className="mb-2 text-lg font-semibold">Estimate range over time</h4>
-                    <EstimateTrendChart data={result.charts.estimateTrend} />
-                  </Card>
-
-                  <Card>
-                    <h4 className="mb-2 text-lg font-semibold">Risk factor breakdown</h4>
-                    <RiskBreakdownChart data={riskData} />
-                    <div className="mt-3 grid gap-2">
-                      {result.riskFactors.map((factor) => (
-                        <div key={factor.label} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
-                          <p className="font-medium">{factor.label} · {factor.score}/100</p>
-                          <p className="text-white/70">{factor.reason}</p>
-                          <p className="text-xs text-primary">Source: {factor.source}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-
-                  <Card>
-                    <h4 className="text-lg font-semibold">Why this area?</h4>
-                    <ul className="mt-2 space-y-1 text-sm text-white/80">
-                      <li>• {result.context.areaSummary}</li>
-                      <li>• {result.context.historicalTrend}</li>
-                      <li>• {result.context.comparisonInsight}</li>
-                    </ul>
-                  </Card>
-
-                  {/* AI Insights Panel */}
+                  {/* AI Insights Panel — placed ABOVE risk breakdown for prominence */}
                   {(aiInsights || aiLoading) && (
                     <Card>
                       <div className="flex items-center gap-2 mb-3">
@@ -802,12 +778,40 @@ function App() {
                             </div>
                           )}
                           {aiInsights.llmEstimate ? (
-                            <p className="text-xs text-white/50">AI independent estimate: {formatCurrency(aiInsights.llmEstimate)}/mo (blended 40% into final result)</p>
+                            <p className="text-xs text-white/50">AI independent estimate: {formatCurrency(aiInsights.llmEstimate)} {CURRENCY_LABEL}/mo (blended 40% into final result)</p>
                           ) : null}
                         </div>
                       ) : null}
                     </Card>
                   )}
+
+                  <Card>
+                    <h4 className="mb-2 text-lg font-semibold">Estimate range over time <span className="text-xs font-normal text-white/40">({CURRENCY_LABEL})</span></h4>
+                    <EstimateTrendChart data={result.charts.estimateTrend} />
+                  </Card>
+
+                  <Card>
+                    <h4 className="mb-2 text-lg font-semibold">Risk factor breakdown</h4>
+                    <RiskBreakdownChart data={riskData} />
+                    <div className="mt-3 grid gap-2">
+                      {result.riskFactors.map((factor) => (
+                        <div key={factor.label} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
+                          <p className="font-medium">{factor.label} · {factor.score}/100</p>
+                          <p className="text-white/70">{factor.reason}</p>
+                          <p className="text-xs text-primary">Source: {factor.source}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <h4 className="text-lg font-semibold">Why this area?</h4>
+                    <ul className="mt-2 space-y-1 text-sm text-white/80">
+                      <li>• {result.context.areaSummary}</li>
+                      <li>• {result.context.historicalTrend}</li>
+                      <li>• {result.context.comparisonInsight}</li>
+                    </ul>
+                  </Card>
 
                   <Card>
                     <h4 className="text-lg font-semibold">Data sources</h4>
@@ -830,7 +834,7 @@ function App() {
                   <Card>
                     <h4 className="text-lg font-semibold">How this estimate is built</h4>
                     <p className="mt-2 text-sm text-white/75">
-                      AutoRate Atlas uses a three-layer architecture: <strong>Layer 1</strong> — Real state-level insurance baselines
+                      All monetary values are in <strong>USD (United States Dollars)</strong>. AutoRate Atlas uses a three-layer architecture: <strong>Layer 1</strong> — Real state-level insurance baselines
                       (all 50 states + DC) calibrated from 2025/2026 Insurify and Experian data. <strong>Layer 2</strong> — An actuarial
                       Generalized Linear Model (GLM) with multiplicative rating factors for age, credit, coverage, mileage, history,
                       vehicle age, and environmental signals (weather, road density, Census income/density). <strong>Layer 3</strong>{' — '}

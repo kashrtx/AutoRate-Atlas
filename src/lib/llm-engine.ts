@@ -11,18 +11,18 @@ export interface ModelOption {
 
 export const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
-    label: 'Phi-3.5 Mini',
-    family: 'phi',
-    sizeHint: '~2.2 GB',
-    description: 'Best accuracy — Microsoft Phi-3.5',
-  },
-  {
     id: 'gemma-2-2b-it-q4f16_1-MLC',
     label: 'Gemma 2 2B',
     family: 'gemma',
     sizeHint: '~1.4 GB',
-    description: 'Good balance — Google Gemma 2',
+    description: 'Recommended — Google Gemma 2',
+  },
+  {
+    id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+    label: 'Phi-3.5 Mini',
+    family: 'phi',
+    sizeHint: '~2.2 GB',
+    description: 'Larger model — Microsoft Phi-3.5',
   },
   {
     id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
@@ -30,13 +30,6 @@ export const MODEL_OPTIONS: ModelOption[] = [
     family: 'qwen',
     sizeHint: '~1.0 GB',
     description: 'Lightweight — Alibaba Qwen 2.5',
-  },
-  {
-    id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 1B',
-    family: 'llama',
-    sizeHint: '~0.8 GB',
-    description: 'Smallest — Meta Llama 3.2',
   },
 ]
 
