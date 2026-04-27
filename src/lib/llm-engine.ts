@@ -1,31 +1,129 @@
 import { CreateMLCEngine, type MLCEngine } from '@mlc-ai/web-llm'
 
-const MODEL_ID = 'Phi-3.5-mini-instruct-q4f16_1-MLC'
+// ── Model catalog ──────────────────────────────────────────────────────────────
+export interface ModelOption {
+  id: string
+  label: string
+  family: string
+  sizeHint: string    // Human-readable approximate download
+  description: string
+}
 
+export const MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+    label: 'Phi-3.5 Mini',
+    family: 'phi',
+    sizeHint: '~2.2 GB',
+    description: 'Best accuracy — Microsoft Phi-3.5',
+  },
+  {
+    id: 'gemma-2-2b-it-q4f16_1-MLC',
+    label: 'Gemma 2 2B',
+    family: 'gemma',
+    sizeHint: '~1.4 GB',
+    description: 'Good balance — Google Gemma 2',
+  },
+  {
+    id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    label: 'Qwen 2.5 1.5B',
+    family: 'qwen',
+    sizeHint: '~1.0 GB',
+    description: 'Lightweight — Alibaba Qwen 2.5',
+  },
+  {
+    id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+    label: 'Llama 3.2 1B',
+    family: 'llama',
+    sizeHint: '~0.8 GB',
+    description: 'Smallest — Meta Llama 3.2',
+  },
+]
+
+const STORAGE_KEY_AUTOLOAD = 'atlas_ai_autoload'
+const STORAGE_KEY_MODEL = 'atlas_ai_model'
+
+// ── Runtime state ──────────────────────────────────────────────────────────────
 let engineInstance: MLCEngine | null = null
 let engineReady = false
 let loadingPromise: Promise<MLCEngine | null> | null = null
+let activeModelId: string | null = null
 
 export type LoadProgress = { progress: number; text: string }
 
+// ── WebGPU check ───────────────────────────────────────────────────────────────
 export const isWebGPUAvailable = (): boolean => {
   return typeof navigator !== 'undefined' && 'gpu' in navigator
 }
 
+// ── Auto-load preference ───────────────────────────────────────────────────────
+export const getAutoLoad = (): boolean => {
+  if (typeof localStorage === 'undefined') return true
+  const stored = localStorage.getItem(STORAGE_KEY_AUTOLOAD)
+  return stored !== 'false' // Default to true if never set
+}
+
+export const setAutoLoad = (enabled: boolean): void => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY_AUTOLOAD, String(enabled))
+  }
+}
+
+// ── Model selection ────────────────────────────────────────────────────────────
+export const getSelectedModelId = (): string => {
+  if (typeof localStorage === 'undefined') return MODEL_OPTIONS[0].id
+  return localStorage.getItem(STORAGE_KEY_MODEL) || MODEL_OPTIONS[0].id
+}
+
+export const setSelectedModelId = (id: string): void => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY_MODEL, id)
+  }
+}
+
+export const getSelectedModelOption = (): ModelOption => {
+  const id = getSelectedModelId()
+  return MODEL_OPTIONS.find((m) => m.id === id) || MODEL_OPTIONS[0]
+}
+
+export const getActiveModelId = (): string | null => activeModelId
+
+// ── Engine lifecycle ───────────────────────────────────────────────────────────
+
+/**
+ * Load the selected (or specified) model. Returns the engine if successful.
+ */
 export const getEngine = async (
   onProgress?: (p: LoadProgress) => void,
+  modelId?: string,
 ): Promise<MLCEngine | null> => {
-  if (engineReady && engineInstance) return engineInstance
-  if (loadingPromise) return loadingPromise
+  const targetModel = modelId || getSelectedModelId()
+
+  // If already loaded with same model, return it
+  if (engineReady && engineInstance && activeModelId === targetModel) {
+    return engineInstance
+  }
+
+  // If loading the same model, wait for it
+  if (loadingPromise && activeModelId === targetModel) {
+    return loadingPromise
+  }
+
+  // If a different model is loaded or loading, unload first
+  if (engineInstance || loadingPromise) {
+    await unloadEngine()
+  }
 
   if (!isWebGPUAvailable()) {
     console.warn('WebGPU not available — LLM features disabled')
     return null
   }
 
+  activeModelId = targetModel
+
   loadingPromise = (async () => {
     try {
-      engineInstance = await CreateMLCEngine(MODEL_ID, {
+      engineInstance = await CreateMLCEngine(targetModel, {
         initProgressCallback: (report: { progress: number; text: string }) => {
           onProgress?.({
             progress: report.progress,
@@ -39,6 +137,7 @@ export const getEngine = async (
       console.error('Failed to load WebLLM engine:', err)
       engineInstance = null
       engineReady = false
+      activeModelId = null
       return null
     } finally {
       loadingPromise = null
@@ -48,17 +147,46 @@ export const getEngine = async (
   return loadingPromise
 }
 
-export const isLLMReady = () => engineReady
-
 /**
- * Clear the cached AI model from browser storage (Cache API + IndexedDB).
- * After clearing, the page should be reloaded so the model can be re-downloaded on next use.
+ * Unload the engine from GPU memory without clearing the cached model files.
+ * This frees VRAM but the model files stay in Cache API for fast reload.
  */
-export const clearModelCache = async (): Promise<void> => {
-  // Reset in-memory engine state
+export const unloadEngine = async (): Promise<void> => {
+  if (loadingPromise) {
+    // Wait for any in-progress load to finish before unloading
+    try { await loadingPromise } catch { /* ignore */ }
+  }
+
+  if (engineInstance) {
+    try {
+      // MLCEngine may have a dispose/unload method
+      if ('unload' in engineInstance && typeof (engineInstance as Record<string, unknown>).unload === 'function') {
+        await (engineInstance as unknown as { unload: () => Promise<void> }).unload()
+      }
+    } catch (err) {
+      console.warn('Engine unload warning:', err)
+    }
+  }
+
   engineInstance = null
   engineReady = false
   loadingPromise = null
+  activeModelId = null
+}
+
+export const isLLMReady = () => engineReady
+export const isLLMLoading = () => loadingPromise !== null
+
+/**
+ * Clear the cached AI model from browser storage (Cache API + IndexedDB)
+ * AND disable auto-load so the model doesn't re-download on refresh.
+ */
+export const clearModelCache = async (): Promise<void> => {
+  // Unload from GPU first
+  await unloadEngine()
+
+  // Disable auto-load
+  setAutoLoad(false)
 
   // Clear Cache API entries (WebLLM default storage)
   if ('caches' in window) {
@@ -76,6 +204,37 @@ export const clearModelCache = async (): Promise<void> => {
     }
   }
 }
+
+// ── Storage tracking ───────────────────────────────────────────────────────────
+
+/**
+ * Estimate how much storage is consumed by AI model cache.
+ * Uses navigator.storage.estimate() for efficiency (doesn't iterate blobs).
+ */
+export const getModelStorageSize = async (): Promise<number> => {
+  try {
+    if ('storage' in navigator && 'estimate' in navigator.storage) {
+      const est = await navigator.storage.estimate()
+      return est.usage ?? 0
+    }
+  } catch {
+    // Fallback: ignore
+  }
+  return 0
+}
+
+/**
+ * Format bytes to human-readable string.
+ */
+export const formatStorageSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+// ── LLM query functions ────────────────────────────────────────────────────────
 
 export interface VehicleValuation {
   msrp: number

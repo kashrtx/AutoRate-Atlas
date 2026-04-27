@@ -1,4 +1,5 @@
 import type { EstimateRequest, EstimateResponse } from '../types/estimate'
+import { lookupVehicleValue, vehicleValueFactor } from './vehicle-values'
 
 
 
@@ -10,8 +11,13 @@ const CRED: Record<string, number> = { excellent:0.82,good:0.95,fair:1.15,poor:1
 
 export const getFallbackEstimate = (request: EstimateRequest): EstimateResponse => {
   const base = 172
+
+  // Use brand-based vehicle value instead of hardcoded $28,500
+  const vehicleVal = lookupVehicleValue(request.vehicleMake, request.vehicleYear)
+  const vvFactor = vehicleValueFactor(vehicleVal.currentValue)
+
   const factor = (AGE[request.ageRange] ?? 1) * (HIST[request.drivingHistory] ?? 1) *
-    (COV[request.coverageLevel] ?? 1) * (MILE[request.annualMileage] ?? 1) * (CRED[request.creditTier] ?? 1)
+    (COV[request.coverageLevel] ?? 1) * (MILE[request.annualMileage] ?? 1) * (CRED[request.creditTier] ?? 1) * vvFactor
   const likelyMonthly = Math.round(base * factor)
 
   return {
@@ -22,8 +28,8 @@ export const getFallbackEstimate = (request: EstimateRequest): EstimateResponse 
     confidence: 48,
     confidenceReason: 'Using fallback estimator — live data feeds temporarily unavailable.',
     riskScore: Math.round(Math.min(99, factor * 40)),
-    vehicleValueEstimate: 28500,
-    vehicleValueSource: 'Fallback default',
+    vehicleValueEstimate: vehicleVal.currentValue,
+    vehicleValueSource: `Brand lookup (MSRP: $${vehicleVal.msrp.toLocaleString()})`,
     riskFactors: [
       { label: 'Driver profile', score: Math.round(Math.min(98, factor * 42)),
         reason: `Age ${request.ageRange}, ${request.drivingHistory} record, ${request.creditTier} credit.`,

@@ -37,6 +37,38 @@ const MILEAGE_FACTOR: Record<string, number> = { low:0.90, average:1.0, high:1.1
 const CREDIT_FACTOR: Record<string, number> = { excellent:0.82, good:0.95, fair:1.15, poor:1.35 }
 const GENDER_FACTOR: Record<string, number> = { male:1.02, female:0.98 }
 
+// ── Brand-based vehicle value lookup ──
+const BRAND_MSRP: Record<string, number> = {
+  KOENIGSEGG:2500000,BUGATTI:3000000,PAGANI:2800000,RIMAC:2100000,
+  FERRARI:300000,LAMBORGHINI:280000,MCLAREN:250000,'ASTON MARTIN':190000,MASERATI:85000,
+  'ROLLS-ROYCE':350000,'ROLLS ROYCE':350000,BENTLEY:220000,MAYBACH:200000,
+  PORSCHE:95000,'LAND ROVER':75000,JAGUAR:68000,BMW:55000,
+  'MERCEDES-BENZ':58000,'MERCEDES BENZ':58000,MERCEDES:58000,
+  AUDI:52000,LEXUS:50000,INFINITI:48000,GENESIS:48000,VOLVO:46000,
+  LINCOLN:52000,CADILLAC:55000,ACURA:42000,'ALFA ROMEO':45000,
+  LOTUS:85000,TESLA:45000,RIVIAN:75000,LUCID:78000,POLESTAR:52000,
+  TOYOTA:32000,HONDA:30000,FORD:36000,CHEVROLET:34000,GMC:42000,
+  RAM:42000,DODGE:38000,JEEP:38000,CHRYSLER:35000,BUICK:32000,
+  SUBARU:30000,MAZDA:30000,HYUNDAI:28000,KIA:28000,NISSAN:28000,
+  VOLKSWAGEN:30000,VW:30000,MITSUBISHI:24000,FIAT:22000,MINI:30000,
+}
+const APPRECIATION_BRANDS = new Set(['KOENIGSEGG','BUGATTI','PAGANI','FERRARI','LAMBORGHINI','ROLLS-ROYCE','ROLLS ROYCE','PORSCHE'])
+
+const lookupVehicleValue = (make: string, year: number) => {
+  const norm = make.trim().toUpperCase()
+  const msrp = BRAND_MSRP[norm] ?? 32000
+  const currentYear = new Date().getUTCFullYear()
+  const age = Math.max(0, currentYear - year)
+  let currentValue: number
+  if (APPRECIATION_BRANDS.has(norm)) {
+    currentValue = age <= 2 ? msrp * 0.92 : age <= 5 ? msrp * 0.80 : age <= 10 ? msrp * 0.70 : msrp * 0.60
+  } else {
+    const depRate = age === 0 ? 0.95 : age === 1 ? 0.82 : age <= 3 ? 0.63 : age <= 5 ? 0.48 : age <= 10 ? 0.28 : 0.15
+    currentValue = msrp * depRate
+  }
+  return { msrp: Math.round(msrp), currentValue: Math.round(currentValue) }
+}
+
 // Vehicle value → insurance cost multiplier (higher value = higher premium)
 const vehicleValueFactor = (value: number) => {
   if (value <= 15000) return 0.78
@@ -46,7 +78,9 @@ const vehicleValueFactor = (value: number) => {
   if (value <= 75000) return 1.32
   if (value <= 120000) return 1.55
   if (value <= 200000) return 1.85
-  return 2.20
+  if (value <= 500000) return 2.20
+  if (value <= 1000000) return 2.60
+  return 3.10
 }
 
 const vehicleAgeFactor = (year: number) => {
@@ -182,13 +216,13 @@ export const handler: Handler = async (event) => {
       (req.gender ? (GENDER_FACTOR[req.gender] ?? 1) : 1) *
       vehicleAgeFactor(req.vehicleYear)
 
-    // Vehicle value — we pass a placeholder; the LLM on the client provides the real value
-    // Server still computes a rough estimate for the non-LLM path
-    const vehicleValueEstimate = 28500 // Will be overridden by LLM on client
+    // Vehicle value — use brand-based lookup for an accurate starting point
+    const vehicleVal = lookupVehicleValue(req.vehicleMake, req.vehicleYear)
+    const vehicleValueEstimate = vehicleVal.currentValue
     const vvFactor = vehicleValueFactor(vehicleValueEstimate)
 
     const rawMonthly = stateBaseline * profileFactor * vvFactor * clamp(environmentMod, 0.85, 1.25) * blsFactor
-    const likelyMonthly = Math.round(clamp(rawMonthly, 35, 2800))
+    const likelyMonthly = Math.round(clamp(rawMonthly, 35, 4500))
     const lowMonthly = Math.round(likelyMonthly * 0.78)
     const highMonthly = Math.round(likelyMonthly * 1.32)
 
@@ -214,7 +248,8 @@ export const handler: Handler = async (event) => {
           : 'One or more live feeds were unavailable; confidence is reduced and national baseline was used.',
         riskScore,
         vehicleValueEstimate,
-        vehicleValueSource: 'Pending LLM valuation (client-side)',
+        vehicleMsrp: vehicleVal.msrp,
+        vehicleValueSource: `Brand lookup (MSRP: $${vehicleVal.msrp.toLocaleString()})`,
         stateDetected: stateCode,
         riskFactors: [
           { label: 'State insurance baseline', score: Math.round(clamp(stateBaseline / 3.1, 20, 99)),

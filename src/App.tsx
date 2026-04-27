@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, Sparkles, TriangleAlert, BrainCircuit } from 'lucide-react'
+import { Check, LoaderCircle, LocateFixed, MapPin, Search, ShieldCheck, Sparkles, TriangleAlert, BrainCircuit, Power, PowerOff, HardDrive, Download, Trash2 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card } from './components/ui/card'
 import { Input } from './components/ui/input'
@@ -11,8 +11,9 @@ import { confidenceLabel, formatCurrency } from './lib/format'
 import { geocodeLocation, suggestLocations } from './lib/geocode'
 import { getFallbackEstimate } from './lib/fallback'
 import { getModelsForMakeYear, getVehicleMakes } from './lib/vehicle'
-import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, type LoadProgress } from './lib/llm-engine'
+import { getEngine, isWebGPUAvailable, queryVehicleValuation, queryInsuranceAnalysis, clearModelCache, unloadEngine, getAutoLoad, setAutoLoad, getSelectedModelId, setSelectedModelId, getSelectedModelOption, getModelStorageSize, formatStorageSize, MODEL_OPTIONS, type LoadProgress } from './lib/llm-engine'
 import { buildHeuristicInsights } from './lib/insights'
+import { lookupVehicleValue, vehicleValueFactor } from './lib/vehicle-values'
 import type {
   AgeRange,
   AIInsights,
@@ -57,6 +58,13 @@ function App() {
   const [aiInsights, setAiInsights] = useState<AIInsights | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const llmInitRef = useRef(false)
+  const [selectedModelId, setSelectedModelState] = useState(getSelectedModelId)
+  const [autoLoadEnabled, setAutoLoadEnabled] = useState(getAutoLoad)
+  const [storageSize, setStorageSize] = useState(0)
+  const [aiDisabledBanner, setAiDisabledBanner] = useState(!getAutoLoad())
+  const [modelSwitching, setModelSwitching] = useState(false)
+  const storagePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const selectedModelOption = useMemo(() => MODEL_OPTIONS.find(m => m.id === selectedModelId) || MODEL_OPTIONS[0], [selectedModelId])
 
   const canEstimate = Boolean(request.location && request.vehicleMake && request.vehicleModel && request.vehicleYear)
 
@@ -65,15 +73,23 @@ function App() {
     [result],
   )
 
-  // Initialize LLM engine on mount
+  // Initialize LLM engine on mount — only if auto-load is enabled
   useEffect(() => {
-    if (llmInitRef.current || !llmSupported) return
+    if (llmInitRef.current || !llmSupported || !autoLoadEnabled) return
     llmInitRef.current = true
-    getEngine((p) => setLlmProgress(p)).then((eng) => {
+    getEngine((p) => setLlmProgress(p), selectedModelId).then((eng) => {
       if (eng) setLlmReady(true)
       setLlmProgress(null)
     })
-  }, [llmSupported])
+  }, [llmSupported, autoLoadEnabled, selectedModelId])
+
+  // Poll storage size
+  useEffect(() => {
+    const poll = () => { getModelStorageSize().then(setStorageSize).catch(() => {}) }
+    poll()
+    storagePollRef.current = setInterval(poll, llmProgress ? 5000 : 30000)
+    return () => { if (storagePollRef.current) clearInterval(storagePollRef.current) }
+  }, [llmProgress])
 
   useEffect(() => {
     getVehicleMakes().then(setMakeSuggestions).catch(() => setMakeSuggestions([]))
@@ -149,7 +165,7 @@ function App() {
       const baselineInsights = buildHeuristicInsights(payload, data)
       setAiInsights(baselineInsights)
 
-      // LLM enhancement: get vehicle valuation + recalculate
+      // LLM enhancement: get vehicle valuation + fully recalculate
       if (llmReady) {
         setAiLoading(true)
         try {
@@ -157,15 +173,14 @@ function App() {
             payload.vehicleYear, payload.vehicleMake, payload.vehicleModel, payload.vehicleTrim
           )
           if (valuation && valuation.msrp > 0) {
-            data.vehicleValueEstimate = valuation.currentValue || valuation.msrp
+            const aiValue = valuation.currentValue || valuation.msrp
+            data.vehicleValueEstimate = aiValue
             data.vehicleValueSource = `AI Valuation (MSRP: $${valuation.msrp.toLocaleString()}, Group: ${valuation.insuranceGroup}/50)`
-            // Recalculate with real vehicle value
-            const vvFactor = valuation.currentValue <= 15000 ? 0.78 : valuation.currentValue <= 25000 ? 0.90 :
-              valuation.currentValue <= 35000 ? 1.0 : valuation.currentValue <= 50000 ? 1.15 :
-              valuation.currentValue <= 75000 ? 1.32 : valuation.currentValue <= 120000 ? 1.55 :
-              valuation.currentValue <= 200000 ? 1.85 : 2.20
+
+            // FULL recalculate using AI vehicle value — don't blend with server's placeholder
+            const vvFact = vehicleValueFactor(aiValue)
             const igFactor = 0.7 + (valuation.insuranceGroup / 50) * 1.5
-            const combined = (vvFactor * 0.6 + igFactor * 0.4)
+            const combined = (vvFact * 0.6 + igFactor * 0.4)
             const adjusted = Math.round(data.likelyMonthly * combined)
             data.likelyMonthly = adjusted
             data.lowMonthly = Math.round(adjusted * 0.78)
@@ -199,9 +214,9 @@ function App() {
               llmEstimate: analysis.estimatedMonthly,
               llmConfidence: analysis.confidence,
             })
-            // Blend LLM estimate with actuarial (30% LLM, 70% actuarial)
+            // Blend LLM estimate with actuarial (40% LLM, 60% actuarial) — AI gets more weight now
             if (analysis.estimatedMonthly > 0) {
-              const blended = Math.round(data.likelyMonthly * 0.7 + analysis.estimatedMonthly * 0.3)
+              const blended = Math.round(data.likelyMonthly * 0.6 + analysis.estimatedMonthly * 0.4)
               data.likelyMonthly = blended
               data.lowMonthly = Math.round(blended * 0.78)
               data.highMonthly = Math.round(blended * 1.32)
@@ -218,6 +233,9 @@ function App() {
         } finally {
           setAiLoading(false)
         }
+      } else {
+        // Non-AI path: server already uses brand lookup, build heuristic insights
+        setAiInsights(buildHeuristicInsights(payload, data))
       }
 
       setResult(data)
@@ -235,12 +253,58 @@ function App() {
     setClearingCache(true)
     try {
       await clearModelCache()
-      window.location.reload()
+      setLlmReady(false)
+      setAutoLoadEnabled(false)
+      setAiDisabledBanner(true)
+      llmInitRef.current = false
+      setClearingCache(false)
     } catch (err) {
       console.error('Failed to clear cache:', err)
       setClearingCache(false)
     }
   }, [])
+
+  const handleLoadModel = useCallback(async () => {
+    if (!llmSupported) return
+    setAiDisabledBanner(false)
+    setAutoLoad(true)
+    setAutoLoadEnabled(true)
+    llmInitRef.current = true
+    getEngine((p) => setLlmProgress(p), selectedModelId).then((eng) => {
+      if (eng) setLlmReady(true)
+      setLlmProgress(null)
+    })
+  }, [llmSupported, selectedModelId])
+
+  const handleUnloadModel = useCallback(async () => {
+    await unloadEngine()
+    setLlmReady(false)
+    setLlmProgress(null)
+    llmInitRef.current = false
+  }, [])
+
+  const handleModelSwitch = useCallback(async (newModelId: string) => {
+    if (newModelId === selectedModelId) return
+    setModelSwitching(true)
+    // Unload current model
+    await unloadEngine()
+    setLlmReady(false)
+    setLlmProgress(null)
+    llmInitRef.current = false
+    // Set new model
+    setSelectedModelId(newModelId)
+    setSelectedModelState(newModelId)
+    // Load new model
+    setAiDisabledBanner(false)
+    setAutoLoad(true)
+    setAutoLoadEnabled(true)
+    llmInitRef.current = true
+    getEngine((p) => setLlmProgress(p), newModelId).then((eng) => {
+      if (eng) setLlmReady(true)
+      setLlmProgress(null)
+      setModelSwitching(false)
+    })
+  }, [selectedModelId])
 
   const filteredMakes = useMemo(() => {
     const query = request.vehicleMake.trim().toLowerCase()
@@ -270,10 +334,11 @@ function App() {
               <p className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all ${
                 llmReady ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-400' :
                 llmProgress ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' :
+                aiDisabledBanner ? 'border-red-400/50 bg-red-400/10 text-red-400' :
                 'border-white/20 bg-white/5 text-white/50'
               }`}>
                 <BrainCircuit className="h-3.5 w-3.5" />
-                {llmReady ? 'AI Engine Ready' : llmProgress ? `Loading AI: ${(llmProgress.progress * 100).toFixed(0)}%` : 'Initializing AI...'}
+                {llmReady ? `AI Engine Ready · ${selectedModelOption.label}` : llmProgress ? `Loading ${selectedModelOption.label}: ${(llmProgress.progress * 100).toFixed(0)}%` : aiDisabledBanner ? 'AI Engine Disabled' : 'AI Standby'}
               </p>
             )}
           </div>
@@ -281,7 +346,7 @@ function App() {
             AutoRate Atlas
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-white/75 md:text-base">
-            Insurance estimates powered by an in-browser AI (Microsoft Phi-3.5), actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
+            Insurance estimates powered by {llmReady ? `an in-browser AI (${selectedModelOption.label})` : 'brand-calibrated vehicle data'}, actuarial GLM model, and live public data feeds. State-calibrated baselines for all 50 states. No account required.
           </p>
         </motion.header>
 
@@ -508,18 +573,97 @@ function App() {
             </Button>
 
             <p className="text-xs text-white/70">
-              Press the button when you're ready. {llmReady ? '🧠 AI engine active — vehicle values & insights powered by local Phi-3.5.' : llmSupported ? '⏳ AI engine loading...' : '📊 Using actuarial model (WebGPU not available).'}
+              Press the button when you're ready. {llmReady ? `🧠 AI engine active — vehicle values & insights powered by local ${selectedModelOption.label}.` : llmSupported && !aiDisabledBanner ? '⏳ AI engine loading...' : llmSupported ? '📊 Using statistical model with brand-calibrated data.' : '📊 Using actuarial model (WebGPU not available).'}
             </p>
 
             {llmSupported && (
-              <button
-                onClick={handleClearCache}
-                disabled={clearingCache}
-                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
-              >
-                {clearingCache ? <LoaderCircle className="h-3 w-3 animate-spin" /> : null}
-                {clearingCache ? 'Clearing...' : '🗑️ Clear AI model from storage'}
-              </button>
+              <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-white/90">
+                  <BrainCircuit className="h-4 w-4 text-violet-400" />
+                  <span>AI Engine</span>
+                  {storageSize > 0 && (
+                    <span className="ml-auto inline-flex items-center gap-1 text-xs text-white/50">
+                      <HardDrive className="h-3 w-3" />
+                      {formatStorageSize(storageSize)} stored
+                    </span>
+                  )}
+                </div>
+
+                {/* AI Disabled Banner */}
+                {aiDisabledBanner && !llmReady && !llmProgress && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                    <PowerOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>AI engine disabled — using statistical model with brand-calibrated vehicle data. Select a model and click "Load" to re-enable AI insights.</span>
+                  </div>
+                )}
+
+                {/* Model selector + load/unload */}
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value={selectedModelId}
+                    onChange={(e) => handleModelSwitch(e.target.value)}
+                    disabled={modelSwitching || !!llmProgress}
+                    className="flex-1 min-w-[140px] rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-xs text-white/90 outline-none transition focus:border-violet-400/50 disabled:opacity-50"
+                  >
+                    {MODEL_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id} className="bg-slate-900 text-white">
+                        {opt.label} ({opt.sizeHint})
+                      </option>
+                    ))}
+                  </select>
+
+                  {!llmReady && !llmProgress ? (
+                    <button
+                      onClick={handleLoadModel}
+                      disabled={modelSwitching}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                    >
+                      <Download className="h-3 w-3" />
+                      Load Model
+                    </button>
+                  ) : llmReady ? (
+                    <button
+                      onClick={handleUnloadModel}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300 transition hover:bg-amber-500/20"
+                    >
+                      <PowerOff className="h-3 w-3" />
+                      Unload
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Loading progress bar */}
+                {llmProgress && (
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(llmProgress.progress * 100).toFixed(0)}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-white/40 truncate">{llmProgress.text}</p>
+                  </div>
+                )}
+
+                {modelSwitching && !llmProgress && (
+                  <div className="flex items-center gap-2 text-xs text-violet-300">
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                    <span>Switching model...</span>
+                  </div>
+                )}
+
+                {/* Clear cache button */}
+                <button
+                  onClick={handleClearCache}
+                  disabled={clearingCache}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/20 bg-red-500/5 px-2.5 py-1 text-[11px] text-red-300/80 transition hover:bg-red-500/15 disabled:opacity-50"
+                >
+                  {clearingCache ? <LoaderCircle className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  {clearingCache ? 'Clearing...' : 'Clear cache & disable auto-load'}
+                </button>
+              </div>
             )}
 
             {error ? (
@@ -625,8 +769,8 @@ function App() {
                           <Sparkles className="h-4 w-4 text-violet-300" />
                         </div>
                         <div>
-                          <h4 className="text-lg font-semibold">AI Insights</h4>
-                          <p className="text-xs text-violet-300/70">Powered by Microsoft Phi-3.5 · Running locally in your browser</p>
+                          <h4 className="text-lg font-semibold">{llmReady ? 'AI Insights' : 'Analysis'}</h4>
+                          <p className="text-xs text-violet-300/70">{llmReady ? `Powered by ${selectedModelOption.label} · Running locally in your browser` : 'Powered by statistical model · Brand-calibrated data'}</p>
                         </div>
                       </div>
                       {aiLoading && !aiInsights ? (
@@ -658,7 +802,7 @@ function App() {
                             </div>
                           )}
                           {aiInsights.llmEstimate ? (
-                            <p className="text-xs text-white/50">AI independent estimate: {formatCurrency(aiInsights.llmEstimate)}/mo (blended 30% into final result)</p>
+                            <p className="text-xs text-white/50">AI independent estimate: {formatCurrency(aiInsights.llmEstimate)}/mo (blended 40% into final result)</p>
                           ) : null}
                         </div>
                       ) : null}
@@ -691,8 +835,8 @@ function App() {
                       Generalized Linear Model (GLM) with multiplicative rating factors for age, credit, coverage, mileage, history,
                       vehicle age, and environmental signals (weather, road density, Census income/density). <strong>Layer 3</strong>{' — '}
                       {llmReady
-                        ? 'Microsoft Phi-3.5 Mini AI model running locally in your browser (via WebLLM/WebGPU) that provides vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 30/70 with the actuarial model for maximum accuracy.'
-                        : 'A fallback heuristic vehicle valuation model (AI engine requires WebGPU browser).'}
+                        ? `${selectedModelOption.label} AI model running locally in your browser (via WebLLM/WebGPU) that provides vehicle valuation, insurance group classification, and personalized analysis. The AI estimate is blended 40/60 with the actuarial model for maximum accuracy.`
+                        : 'Brand-calibrated vehicle valuation with curated MSRP data for 50+ brands and depreciation modeling (AI engine available via WebGPU browser).'}
                       {' '}Results are statistical estimates only, not carrier-issued quotes.
                     </p>
                   </Card>
